@@ -1,0 +1,112 @@
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+}
+
+.root {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(to bottom, #E5D9FF, #BACAEC);
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+}
+
+.top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+}
+
+.navbar {
+    width: 100%;
+    padding: 8px 16px;
+    box-sizing: border-box;
+    background: linear-gradient(to right, #E5D9FF, #BACAEC);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    min-height: 56px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.watermark {
+    margin-right: auto;
+    align-self: center;
+    opacity: 0.8;
+    height: 100%;
+    max-height: 40px;
+    width: auto;
+    color: #000;
+}
+
+.navbar_items {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: clamp(8px, 2vw, 20px);
+    font-weight: 600;
+    color: #333;
+}
+
+.navbar_item {
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    border-radius: 0;
+    background-color: transparent;
+    white-space: nowrap;
+    font-size: clamp(0.9rem, 1.2vw, 1.1rem);
+    line-height: 1;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.navbar_item:hover {
+    background-color: #E491FF;
+    color: #fff;
+}
+
+.navbar_footer {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    background-color: #3B3556;
+    overflow: hidden;
+}
+
+.navbar_footer_highlight {
+    position: absolute;
+    left: 0;
+    width: 0; /* set by JS */
+    height: 100%;
+    background-color: #E491FF;
+    transition: left 0.25s ease, width 0.25s ease;
+}
+
+/* Small screens: slightly tighter spacing */
+@media (max-width: 480px) {
+    .navbar {
+        padding: 8px 12px;
+    }
+    .navbar_item {
+        padding: 0.45rem 0.8rem;
+        font-size: clamp(0.95rem, 3.5vw, 1rem);
+    }
+    .watermark {
+        max-height: 32px;
+    }
+}
