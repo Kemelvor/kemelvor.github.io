@@ -16,6 +16,7 @@ body {
     background: linear-gradient(to bottom, #E5D9FF, #BACAEC);
     margin: 0;
     padding: 0;
+    overflow: hidden;
 }
 
 .container {
@@ -34,15 +35,13 @@ body {
 
 .navbar {
     width: 100%;
-    padding: 8px 16px;
     box-sizing: border-box;
     background: linear-gradient(to right, #E5D9FF, #BACAEC);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    min-height: 56px;
+    min-height: 6.25vh;
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 12px;
 }
 
 .watermark {
@@ -55,46 +54,147 @@ body {
     color: #000;
 }
 
+.banner {
+    z-index: -2;
+    position: absolute;
+    right: 0;
+    margin-left: auto;
+    align-self: center;
+    height: 6.25vh;
+    width: 28vw;
+    object-fit: cover;
+    color: #000;
+}
+
 .navbar_items {
+    z-index: 2;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: clamp(8px, 2vw, 20px);
     font-weight: 600;
     color: #333;
 }
 
 .navbar_item {
+    color: #ffffff;
+    text-decoration: none;
+    text-shadow: #000 4px 4px 7px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
     cursor: pointer;
-    padding: 0.5rem 1rem;
     border-radius: 0;
-    background-color: transparent;
+    background-color: rgba(255, 255, 255, 0);
     white-space: nowrap;
     font-size: clamp(0.9rem, 1.2vw, 1.1rem);
     line-height: 1;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, backdrop-filter 0.4s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 7vw;
+    height: 6.25vh;
+    backdrop-filter: blur(0px);
 }
 
+
 .navbar_item:hover {
-    background-color: #E491FF;
-    color: #fff;
+    backdrop-filter: blur(5px);
 }
 
 .navbar_footer {
     position: relative;
+    z-index: 10;
+    /* above most elements on the page */
     width: 100%;
-    height: 4px;
+    height: .75vh;
     background-color: #3B3556;
     overflow: hidden;
+    pointer-events: none;
+    /* don't block interactions */
 }
 
 .navbar_footer_highlight {
     position: absolute;
+    z-index: 1;
     left: 0;
-    width: 0; /* set by JS */
+    width: 0;
+    /* set by JS */
     height: 100%;
     background-color: #E491FF;
     transition: left 0.25s ease, width 0.25s ease;
+    pointer-events: none;
+}
+
+.artwork_container {
+    margin-top: 56px;
+    padding: 16px;
+    box-sizing: border-box;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: flex-start;
+    justify-content: center;
+    gap: 16px;
+    overflow-y: auto;
+    height: calc(100vh - 56px);
+    width: 100%;
+}
+
+.artwork_image {
+    position: relative;
+    /* Uniform frame height across all items; adjust as needed */
+    height: var(--artwork-row-height, 220px);
+    width: auto;
+    /* width varies by image aspect ratio */
+    min-width: 140px;
+    /* avoid overly skinny columns */
+    border-radius: 8px;
+    overflow: hidden;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    transition: transform 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.artwork_image img {
+    height: 100%;
+    width: auto;
+    /* maintain aspect ratio; determines frame width */
+    object-fit: contain;
+    /* no cropping */
+    display: block;
+}
+
+.artwork_image p {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: 6px 8px;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #ffffff00;
+    /* high contrast base */
+    mix-blend-mode: difference;
+    /* invert against background */
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+    /* fallback contrast */
+    width: 100%;
+    /* span full frame width */
+    border-radius: 0;
+    justify-self: center;
+    max-width: 100%;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(0px);
+}
+
+.artwork_image:hover p {
+    color: #acacac;
+    backdrop-filter: blur(10px);
 }
 
 /* Small screens: slightly tighter spacing */
@@ -102,11 +202,18 @@ body {
     .navbar {
         padding: 8px 12px;
     }
+
     .navbar_item {
         padding: 0.45rem 0.8rem;
         font-size: clamp(0.95rem, 3.5vw, 1rem);
     }
+
     .watermark {
         max-height: 32px;
+    }
+
+    /* Slightly reduce artwork row height on small screens */
+    .artwork_image {
+        height: var(--artwork-row-height, 180px);
     }
 }
