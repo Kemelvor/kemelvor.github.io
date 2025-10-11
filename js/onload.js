@@ -1,7 +1,10 @@
 function positionHighlightToItem(item) {
     const highlight = document.querySelector(".navbar_footer_highlight");
     const footer = document.querySelector(".navbar_footer");
+    const navbar = document.querySelector('.navbar');
     if (!item || !highlight || !footer) return;
+    // Suppress highlight in mobile mode (footer is hidden there)
+    if (navbar && navbar.classList.contains('is-mobile')) return;
 
     const itemRect = item.getBoundingClientRect();
     const footerRect = footer.getBoundingClientRect();
@@ -712,25 +715,54 @@ document.addEventListener("DOMContentLoaded", function () {
 
     let activeIndex = 0;
 
+    // Initialize active tab from current hash before any layout adjustments
+    const setActiveFromHash = () => {
+        const hash = window.location.hash || '#home';
+        let found = 0;
+        items.forEach((item, index) => {
+            const itemName = item.getAttribute('name');
+            if (itemName && hash === `#${itemName}`) {
+                found = index;
+            }
+        });
+        activeIndex = found;
+        items.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+        // Only draw the footer highlight in desktop mode
+        if (!navbar.classList.contains('is-mobile')) {
+            const activeItem = document.querySelector('.navbar_item.is-active') || items[activeIndex] || items[0];
+            if (activeItem) positionHighlightToItem(activeItem);
+        }
+    };
+    setActiveFromHash();
+
     items.forEach((item, index) => {
         item.addEventListener("mouseenter", () => {
+            // avoid hover highlight when mobile menu is active
+            if (navbar.classList.contains('is-mobile')) return;
             positionHighlightToItem(item);
         });
         item.addEventListener("click", () => {
+            // immediate visual feedback; hashchange will perform section switch
             activeIndex = index;
-            positionHighlightToItem(item);
-            go_to_tab();
+            items.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+            if (!navbar.classList.contains('is-mobile')) positionHighlightToItem(item);
         });
     });
 
     // When leaving the navbar, snap back to the active item
     navbar.addEventListener("mouseleave", () => {
-        positionHighlightToItem(items[activeIndex]);
+        const activeItem = document.querySelector('.navbar_item.is-active') || items[activeIndex] || items[0];
+        if (activeItem) positionHighlightToItem(activeItem);
     });
 
     // Recompute on resize to keep alignment correct
     window.addEventListener("resize", () => {
-        positionHighlightToItem(items[activeIndex]);
+        if (!navbar.classList.contains('is-mobile')) {
+            requestAnimationFrame(() => {
+                const activeItem = document.querySelector('.navbar_item.is-active') || items[activeIndex] || items[0];
+                if (activeItem) positionHighlightToItem(activeItem);
+            });
+        }
     });
     window.addEventListener("load", () => {
         const ON_PAGE = getOnPage();
@@ -741,7 +773,11 @@ document.addEventListener("DOMContentLoaded", function () {
             // Match either by explicit data-path or by name attribute
             if (itemPath === ON_PAGE || (itemName && ON_PAGE.endsWith(`#${itemName}`))) {
                 activeIndex = index;
-                positionHighlightToItem(item);
+                items.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+                if (!navbar.classList.contains('is-mobile')) {
+                    const activeItem = document.querySelector('.navbar_item.is-active') || item;
+                    if (activeItem) positionHighlightToItem(activeItem);
+                }
             }
         });
 
@@ -804,6 +840,11 @@ document.addEventListener("DOMContentLoaded", function () {
         if (overflow) {
             navbar.classList.add('is-mobile');
             itemsBar.removeAttribute('data-open');
+        }
+        // Reposition or hide highlight depending on mode
+        if (!navbar.classList.contains('is-mobile')) {
+            const activeItem = document.querySelector('.navbar_item.is-active') || items[activeIndex] || items[0];
+            if (activeItem) positionHighlightToItem(activeItem);
         }
     };
     // Toggle dropdown in mobile mode
@@ -886,6 +927,7 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 window.addEventListener("hashchange", () => {
+    // Keep active tab, blur highlight, and content in sync
     go_to_tab();
 });
 
@@ -899,12 +941,18 @@ function go_to_tab() {
     items.forEach((item, index) => {
         const itemName = item.getAttribute("name");
         // Match either by explicit data-path or by name attribute
-        if (itemName == ON_PAGE) {
+        if (itemName && `#${itemName}` === ON_PAGE) {
             activeIndex = index;
         }
     });
 
-    positionHighlightToItem(items[activeIndex]);
+    // Update active class and highlight (skip highlight in mobile mode)
+    const navbar = document.querySelector('.navbar');
+    items.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+    if (!(navbar && navbar.classList.contains('is-mobile'))) {
+        const activeItem = document.querySelector('.navbar_item.is-active') || items[activeIndex] || items[0];
+        if (activeItem) positionHighlightToItem(activeItem);
+    }
     if (ON_PAGE == "#showcase") {
         generateArtworks();
     } else {
