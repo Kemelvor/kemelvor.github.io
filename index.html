@@ -9,6 +9,11 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,300..900;1,300..900&display=swap"
+        rel="stylesheet">
+
 </head>
 
 <body>
@@ -20,14 +25,27 @@
                         <img src="/home/src/page/WatermarkKemV2.png" alt="@Kemelvor" class="watermark">
                         <div class="navbar_items">
                             <img data-gif="/home/src/page/Banner.gif" alt="Banner" class="banner">
-                            <div class="navbar_item" onclick="location.href='/home/#home'">Home</div>
-                            <div class="navbar_item" onclick="location.href='/home/#1'">Showcase</div>
-                            <div class="navbar_item" onclick="location.href='/home/#1'">Processes</div>
-                            <div class="navbar_item" onclick="location.href='/home/#1'">Commissions</div>
+                            <div class="navbar_item" onclick="location.href='/home/#home'" name="home">Home</div>
+                            <div class="navbar_item" onclick="location.href='/home/#showcase'" name="showcase">Showcase
+                            </div>
+                            <div class="navbar_item" onclick="location.href='/home/#processes'" name="processes">
+                                Processes</div>
+                            <div class="navbar_item" onclick="location.href='/home/#commissions'" name="commissions">
+                                Comm Info</div>
                         </div>
                     </div>
                     <div class="navbar_footer">
                         <div class="navbar_footer_highlight"></div>
+                    </div>
+                </div>
+                <div class="home_container" id="home_container">
+                    <div class="home_spacer"></div>
+                    <div class="home_text">
+                        <div class="home_text_title">Kemelvor</div>
+                        <div class="home_text_subtitle">subtitle here</div>
+                        <div class="home_text_description">
+                            Description text here
+                        </div>
                     </div>
                 </div>
                 <div class="artwork_container" id="artwork_container"></div>

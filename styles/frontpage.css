@@ -4,6 +4,12 @@ body {
     padding: 0;
     height: 100%;
     width: 100%;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .root {
@@ -79,6 +85,7 @@ body {
     color: #ffffff;
     text-decoration: none;
     text-shadow: #000 4px 4px 7px;
+    font-family: 'Rubik';
     font-weight: bold;
     letter-spacing: 0.5px;
     cursor: pointer;
@@ -138,6 +145,7 @@ body {
     overflow-y: auto;
     height: calc(100vh - 56px);
     width: 100%;
+    transition: all 0.5s ease;
 }
 
 .artwork_image {
@@ -268,6 +276,57 @@ body {
     border-bottom-color: rgba(51, 51, 51, 0.25);
     border-right-color: rgba(51, 51, 51, 0.25);
 }
+
+.home_spacer {
+    height: 8vh;
+    /* match navbar height */
+    flex-shrink: 0;
+}
+
+.home_container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow: hidden;
+    opacity: 1;
+    transition: all 0.5s ease;
+}
+
+.home_text {
+    box-sizing: border-box;
+    font-family: "rubik";
+    font-size: 1rem;
+    color: #333;
+    text-align: center;
+    align-self: center;
+}
+
+.home_text_title {
+    font-size: 6rem;
+    font-weight: bold;
+    margin: 1vh;
+}
+
+.home_text_subtitle {
+    font-size: 1.1rem;
+    margin-top: 12px;
+    font-weight: 500;
+}
+
+.home_text_description {
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+
+
+
+
+
+
+
 
 @keyframes spin {
     to {
