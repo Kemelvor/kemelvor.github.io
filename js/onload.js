@@ -120,23 +120,33 @@ function ensureViewerStyles() {
     const style = document.createElement('style');
     style.id = 'imageViewerStyles';
     style.textContent = `
-    .iv_overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9999; display: flex; align-items: center; justify-content: center; }
-    .iv_panel { position: relative; width: 96vw; height: 96vh; background: #0c0c0c; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; }
-    .iv_header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: #eee; font: 500 14px/1.2 Rubik, system-ui, sans-serif; background: #111; border-bottom: 1px solid #222; }
+        .iv_overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+        .iv_panel { position: relative; width: 96vw; height: 96vh; background: #0b0b0b; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; }
+        .iv_header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: #eee; font: 500 14px/1.2 Rubik, system-ui, sans-serif; background: #0f0f10; border-bottom: 1px solid #1f1f22; }
     .iv_meta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
     .iv_meta .iv_tag { background: #1a1a1a; border: 1px solid #2a2a2a; padding: 6px 10px; border-radius: 8px; color: #ddd; font-size: 12px; }
     .iv_title { color: #fafafa; font-size: 14px; font-weight: 600; margin-right: 8px; }
     .iv_close { cursor: pointer; border: none; background: #222; color: #ddd; padding: 6px 10px; border-radius: 8px; font-weight: 600; }
     .iv_close:hover { background: #2e2e2e; }
-    .iv_toolbar { display: flex; gap: 8px; }
+        .iv_toolbar { display: flex; gap: 8px; }
     .iv_btn { cursor: pointer; border: 1px solid #2a2a2a; background: #1a1a1a; color: #ddd; padding: 6px 10px; border-radius: 8px; font-weight: 600; }
     .iv_btn:hover { background: #232323; }
-    .iv_viewport { position: relative; flex: 1; background: #0a0a0a; overflow: hidden; cursor: grab; }
+        .iv_viewport { position: relative; flex: 1; background: #0a0a0a; overflow: hidden; cursor: grab; touch-action: none; }
     .iv_viewport.grabbing { cursor: grabbing; }
     .iv_canvas { position: absolute; left: 0; top: 0; will-change: transform; transform-origin: 0 0; }
     .iv_img { user-select: none; pointer-events: none; display: block; }
     .iv_progress { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(255,255,255,0.06); }
     .iv_progress_bar { height: 100%; width: 0%; background: linear-gradient(90deg, #39f, #9cf); transition: width 90ms linear; }
+        /* Mobile safe-area padding */
+        @supports(padding:max(0px)){
+            .iv_panel{ padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+        }
+        /* On-screen mobile controls */
+        .iv_nav_btn{ position:absolute; top:50%; transform: translateY(-50%); width:44px; height:44px; border-radius:999px; border:1px solid #2a2a2a; background: rgba(20,20,20,0.7); color:#eee; display:flex; align-items:center; justify-content:center; z-index:3; backdrop-filter: blur(4px); }
+        .iv_prev{ left:10px; }
+        .iv_next{ right:10px; }
+        .iv_nav_btn:hover{ background: rgba(40,40,40,0.7); }
+        .iv_zoom_badge{ position:absolute; left:10px; bottom:10px; z-index:3; color:#ddd; background: rgba(20,20,20,0.7); border:1px solid #2a2a2a; border-radius:8px; padding:4px 8px; font: 600 12px/1 Rubik,system-ui,sans-serif; }
     `;
     document.head.appendChild(style);
     viewerStylesInjected = true;
@@ -171,7 +181,7 @@ async function fetchFileSize(url) {
 
 // no watermark tile (removed per request)
 
-function openImageViewer({ fname, date }) {
+function openImageViewer({ fname, date, index = null, list = null }) {
     ensureViewerStyles();
     const overlay = document.createElement('div');
     overlay.className = 'iv_overlay';
@@ -202,11 +212,13 @@ function openImageViewer({ fname, date }) {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'iv_toolbar';
-    const btnFit = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: 'Fit' });
-    const btn100 = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: '100%' });
-    const btnMinus = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: '−' });
-    const btnPlus = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: '+' });
-    toolbar.append(btnFit, btn100, btnMinus, btnPlus);
+    const btnFit = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: 'Fit' }); btnFit.setAttribute('aria-label', 'Fit to screen');
+    const btnFill = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: 'Fill' }); btnFill.setAttribute('aria-label', 'Fill viewport');
+    const btn100 = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: '100%' }); btn100.setAttribute('aria-label', 'Zoom 100%');
+    const btnMinus = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: '−' }); btnMinus.setAttribute('aria-label', 'Zoom out');
+    const btnPlus = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: '+' }); btnPlus.setAttribute('aria-label', 'Zoom in');
+    const btnFullscreen = Object.assign(document.createElement('button'), { className: 'iv_btn', textContent: 'Fullscreen' }); btnFullscreen.setAttribute('aria-label', 'Toggle fullscreen');
+    toolbar.append(btnFit, btnFill, btn100, btnMinus, btnPlus, btnFullscreen);
 
     const btnClose = Object.assign(document.createElement('button'), { className: 'iv_close', textContent: 'Close' });
     header.appendChild(meta);
@@ -260,9 +272,17 @@ function openImageViewer({ fname, date }) {
     let scale = 1, minScale = 1, maxScale = 8;
     let tx = 0, ty = 0; // translate
     let userInteracted = false;
+    const zoomBadge = document.createElement('div');
+    zoomBadge.className = 'iv_zoom_badge';
+    zoomBadge.textContent = '100%';
+    viewport.appendChild(zoomBadge);
 
     function applyTransform() {
         canvas.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${scale})`;
+        try {
+            const pct = Math.round(scale * 100);
+            zoomBadge.textContent = `${pct}%`;
+        } catch (_) { }
     }
 
     function clampPan() {
@@ -290,6 +310,12 @@ function openImageViewer({ fname, date }) {
         const vw = viewport.clientWidth; const vh = viewport.clientHeight;
         if (!natW || !natH || !vw || !vh) return 1;
         return Math.min(vw / natW, vh / natH, 1);
+    }
+
+    function computeFill() {
+        const vw = viewport.clientWidth; const vh = viewport.clientHeight;
+        if (!natW || !natH || !vw || !vh) return 1;
+        return Math.min(maxScale, Math.max(vw / natW, vh / natH));
     }
 
     function centerAtCurrentScale() {
@@ -332,7 +358,7 @@ function openImageViewer({ fname, date }) {
     }
     img.addEventListener('load', initFromImage, { once: true });
 
-    // Wheel zoom
+    // Wheel zoom (desktop)
     viewport.addEventListener('wheel', (e) => {
         e.preventDefault();
         const rect = viewport.getBoundingClientRect();
@@ -366,8 +392,104 @@ function openImageViewer({ fname, date }) {
         zoomAt(cx, cy, factor);
     });
 
+    // Touch gestures: pinch-zoom, pan, double-tap zoom, swipe-down to close
+    let touchState = { touches: [], lastTap: 0, startY: 0, swipingDown: false, lastX: null, lastY: null };
+    function getDistance(a, b) { const dx = b.clientX - a.clientX, dy = b.clientY - a.clientY; return Math.hypot(dx, dy); }
+    function getMidpoint(a, b) { return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }; }
+    let pinchStart = null; // {scale, tx, ty, dist, mid}
+    viewport.addEventListener('touchstart', (e) => {
+        if (!e.changedTouches || e.changedTouches.length === 0) return;
+        userInteracted = true;
+        // Track active touches by identifier
+        for (const t of e.changedTouches) { touchState.touches.push(t); }
+        if (touchState.touches.length === 1) {
+            // One-finger pan; record for swipe-down-to-close
+            touchState.startY = touchState.touches[0].clientY;
+            touchState.swipingDown = false;
+            touchState.lastX = touchState.touches[0].clientX;
+            touchState.lastY = touchState.touches[0].clientY;
+        } else if (touchState.touches.length === 2) {
+            // Pinch start snapshot
+            const [a, b] = touchState.touches;
+            pinchStart = { scale, tx, ty, dist: getDistance(a, b), mid: getMidpoint(a, b) };
+        }
+    }, { passive: false });
+    viewport.addEventListener('touchmove', (e) => {
+        if (!touchState.touches.length) return;
+        e.preventDefault();
+        // Update tracked touches
+        const updates = new Map(); for (const t of e.changedTouches) updates.set(t.identifier, t);
+        touchState.touches = touchState.touches.map(t => updates.get(t.identifier) || t);
+        if (touchState.touches.length === 1) {
+            // One finger: pan; also detect swipe down to close when at minScale and near top
+            const t = touchState.touches[0];
+            const dy = t.clientY - touchState.startY;
+            if (scale <= minScale + 0.001 && dy > 24 && Math.abs(dy) > 2 * Math.abs((t.clientX - (viewport.clientWidth / 2)))) {
+                touchState.swipingDown = true;
+                overlay.style.transform = `translateY(${Math.min(120, dy)}px)`;
+                overlay.style.opacity = String(Math.max(0.4, 1 - dy / 300));
+            } else if (!touchState.swipingDown) {
+                // Normal pan
+                if (touchState.lastX == null) { touchState.lastX = t.clientX; touchState.lastY = t.clientY; }
+                const dx = t.clientX - touchState.lastX; const ddy = t.clientY - touchState.lastY;
+                touchState.lastX = t.clientX; touchState.lastY = t.clientY;
+                tx += dx; ty += ddy; clampPan(); applyTransform();
+            }
+        } else if (touchState.touches.length >= 2 && pinchStart) {
+            const [a, b] = touchState.touches;
+            const dist = getDistance(a, b);
+            const mid = getMidpoint(a, b);
+            const factor = dist / Math.max(1, pinchStart.dist);
+            // Zoom about initial midpoint
+            const rect = viewport.getBoundingClientRect();
+            const cx = mid.x - rect.left, cy = mid.y - rect.top;
+            const newScale = Math.max(minScale, Math.min(maxScale, pinchStart.scale * factor));
+            // Keep the pinchStart.midpoint stable
+            const ix = (cx - pinchStart.tx) / pinchStart.scale;
+            const iy = (cy - pinchStart.ty) / pinchStart.scale;
+            scale = newScale;
+            tx = cx - ix * scale; ty = cy - iy * scale;
+            clampPan(); applyTransform();
+        }
+    }, { passive: false });
+    viewport.addEventListener('touchend', (e) => {
+        // Remove ended touches
+        const ids = new Set(Array.from(e.changedTouches).map(t => t.identifier));
+        touchState.touches = touchState.touches.filter(t => !ids.has(t.identifier));
+        if (touchState.swipingDown) {
+            const t = e.changedTouches[0];
+            if (t && (t.clientY - touchState.startY) > 90) {
+                overlay.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
+                overlay.style.transform = 'translateY(100vh)';
+                overlay.style.opacity = '0';
+                setTimeout(() => { close(); }, 180);
+            } else {
+                overlay.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
+                overlay.style.transform = '';
+                overlay.style.opacity = '';
+                setTimeout(() => { overlay.style.transition = ''; }, 220);
+            }
+            touchState.swipingDown = false;
+        }
+        if (touchState.touches.length < 2) { pinchStart = null; }
+        // Double-tap zoom
+        const now = Date.now();
+        if (e.changedTouches.length === 1) {
+            if (now - touchState.lastTap < 300) {
+                const t = e.changedTouches[0];
+                const rect = viewport.getBoundingClientRect();
+                const cx = t.clientX - rect.left; const cy = t.clientY - rect.top;
+                const targetScale = (scale <= minScale + 0.001) ? Math.min(1, maxScale) : minScale;
+                zoomAt(cx, cy, targetScale / scale);
+            }
+            touchState.lastTap = now;
+        }
+    });
+    viewport.addEventListener('touchcancel', () => { touchState.touches = []; pinchStart = null; touchState.swipingDown = false; touchState.lastX = touchState.lastY = null; });
+
     // Toolbar
     btnFit.addEventListener('click', () => { scale = minScale; centerAtCurrentScale(); userInteracted = true; });
+    btnFill.addEventListener('click', () => { scale = computeFill(); centerAtCurrentScale(); userInteracted = true; });
     btn100.addEventListener('click', () => { scale = Math.max(minScale, 1); centerAtCurrentScale(); userInteracted = true; });
     btnMinus.addEventListener('click', () => {
         const vw = viewport.getBoundingClientRect();
@@ -377,12 +499,28 @@ function openImageViewer({ fname, date }) {
         const vw = viewport.getBoundingClientRect();
         zoomAt(vw.width / 2, vw.height / 2, 1.2); userInteracted = true;
     });
+    // Fullscreen toggle
+    function toggleFullscreen() {
+        const el = panel;
+        if (!document.fullscreenElement) { el.requestFullscreen?.(); }
+        else { document.exitFullscreen?.(); }
+    }
+    btnFullscreen.addEventListener('click', toggleFullscreen);
 
     // Close handlers
-    function close() { overlay.remove(); window.removeEventListener('keydown', onKey); }
+    const prevBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    function close() { overlay.remove(); window.removeEventListener('keydown', onKey); document.body.style.overflow = prevBodyOverflow; }
     btnClose.addEventListener('click', close);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    function onKey(e) { if (e.key === 'Escape') close(); }
+    function onKey(e) {
+        if (e.key === 'Escape') { close(); return; }
+        if (e.key === '+' || e.key === '=') { const vw = viewport.getBoundingClientRect(); zoomAt(vw.width / 2, vw.height / 2, 1.2); }
+        if (e.key === '-' || e.key === '_') { const vw = viewport.getBoundingClientRect(); zoomAt(vw.width / 2, vw.height / 2, 1 / 1.2); }
+        if (e.key === '0') { scale = minScale; centerAtCurrentScale(); }
+        if (e.key === '1') { scale = Math.max(minScale, 1); centerAtCurrentScale(); }
+        if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
+    }
     window.addEventListener('keydown', onKey);
 
     // Keep fit on viewport resize if user hasn't changed view
@@ -458,11 +596,60 @@ function openImageViewer({ fname, date }) {
         img.src = fullUrl;
         progress.style.display = 'none';
     }
+
+    // Optional: gallery navigation if list and index provided
+    if (Array.isArray(list) && Number.isInteger(index)) {
+        const prevBtn = document.createElement('button'); prevBtn.className = 'iv_nav_btn iv_prev'; prevBtn.setAttribute('aria-label', 'Previous'); prevBtn.textContent = '‹';
+        const nextBtn = document.createElement('button'); nextBtn.className = 'iv_nav_btn iv_next'; nextBtn.setAttribute('aria-label', 'Next'); nextBtn.textContent = '›';
+        const canPrev = () => index > 0;
+        const canNext = () => index < list.length - 1;
+        const showCurrent = (i) => {
+            index = i;
+            const item = list[index];
+            if (!item) return;
+            const nextFname = item.fname || item;
+            title.textContent = nextFname;
+            try {
+                const tsSec2 = parseFloat(item.date);
+                const date2 = Number.isFinite(tsSec2) ? new Date(tsSec2 * 1000) : new Date(item.date);
+                dateEl.textContent = `Date: ${date2 ? date2.toLocaleString() : 'Unknown'}`;
+            } catch (_) { }
+            // Reset state; keep zoom/pos if same aspect? For simplicity, fit again
+            userInteracted = false; scale = minScale; centerAtCurrentScale();
+            // Swap URLs
+            const nuFull = `/home/src/art/${nextFname}`;
+            const isGif2 = nextFname.toLowerCase().endsWith('.gif');
+            if (!isGif2) { progress.style.display = ''; progressBar.style.width = '0%'; streamImageWithProgress(nuFull); }
+            else { img.src = nuFull; progress.style.display = 'none'; }
+            // Preload neighbors
+            const neighbor = (k) => {
+                if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/home/src/art/${f}`; const tmp = new Image(); tmp.src = u; }
+            };
+            neighbor(index + 1); neighbor(index - 1);
+            // Update buttons visibility
+            prevBtn.style.display = canPrev() ? '' : 'none';
+            nextBtn.style.display = canNext() ? '' : 'none';
+        };
+        prevBtn.addEventListener('click', (ev) => { ev.stopPropagation(); if (canPrev()) showCurrent(index - 1); });
+        nextBtn.addEventListener('click', (ev) => { ev.stopPropagation(); if (canNext()) showCurrent(index + 1); });
+        viewport.appendChild(prevBtn); viewport.appendChild(nextBtn);
+        // Keyboard arrows
+        function onKeyNav(e) { if (e.key === 'ArrowLeft' && canPrev()) { showCurrent(index - 1); } else if (e.key === 'ArrowRight' && canNext()) { showCurrent(index + 1); } }
+        window.addEventListener('keydown', onKeyNav);
+        const prevClose = close; close = function () { window.removeEventListener('keydown', onKeyNav); prevClose(); };
+        // Initialize visibility and preload neighbors
+        prevBtn.style.display = canPrev() ? '' : 'none';
+        nextBtn.style.display = canNext() ? '' : 'none';
+        // Preload
+        const neighbor = (k) => { if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/home/src/art/${f}`; const tmp = new Image(); tmp.src = u; } };
+        neighbor(index + 1); neighbor(index - 1);
+    }
 }
 
 let artworksLoaded = false;
 let artworksInitPromise = null; // single-flight fetch so we don't double-append
 let renderedArtworkKeys = new Set(); // guard against dupes across calls
+let artworksList = []; // ordered list for viewer navigation [{fname, date}]
 let artworkResizeHandler = null;
 let artworkResizeAttached = false;
 
@@ -514,6 +701,7 @@ function generateArtworks() {
     // Start fresh before the first (and only) load
     container.innerHTML = "";
     renderedArtworkKeys.clear();
+    artworksList = [];
 
     artworksInitPromise = fetch("/home/src/art/artlist.txt")
         .then(response => response.json())
@@ -525,6 +713,7 @@ function generateArtworks() {
                 if (renderedArtworkKeys.has(key)) return; // skip duplicates
 
                 renderedArtworkKeys.add(key);
+                artworksList.push({ fname: artwork.fname, date: artwork.date });
                 const div = document.createElement("div");
                 div.classList.add("artwork");
                 div.dataset.key = key;
@@ -548,6 +737,8 @@ function generateArtworks() {
                     wrapper.style.width = `${widthPx}px`;
                 };
 
+                const idx = artworksList.length - 1;
+                wrapper.dataset.index = String(idx);
                 if (artwork.fname.toLowerCase().endsWith(".gif")) {
                     // Show poster frame with overlay; only load/play GIF on click
                     const posterUrls = gifPosterUrlFromGif(url);
@@ -606,7 +797,7 @@ function generateArtworks() {
                     // Clicking the image opens the full viewer; overlay click keeps in-grid play
                     img.addEventListener('click', (ev) => {
                         ev.stopPropagation();
-                        openImageViewer({ fname: artwork.fname, date });
+                        openImageViewer({ fname: artwork.fname, date, index: idx, list: artworksList });
                     });
                     // handled by global anti-copy handlers
 
@@ -644,7 +835,7 @@ function generateArtworks() {
                     u2.onload = () => { img.src = p.hq; };
                     u2.src = p.hq;
                     // Click opens viewer
-                    img.addEventListener('click', () => openImageViewer({ fname: artwork.fname, date }));
+                    img.addEventListener('click', () => openImageViewer({ fname: artwork.fname, date, index: idx, list: artworksList }));
                     // handled by global anti-copy handlers
                 }
 
@@ -703,6 +894,20 @@ function hide_homepage() {
         home.style.opacity = "0";
         home.style.maxHeight = "0";
     }
+}
+
+function show_section(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('is-visible');
+    el.setAttribute('aria-hidden', 'false');
+}
+
+function hide_section(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('is-visible');
+    el.setAttribute('aria-hidden', 'true');
 }
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -962,6 +1167,17 @@ function go_to_tab() {
         show_homepage();
     } else {
         hide_homepage();
+    }
+    // Processes and Comm Info sections
+    if (ON_PAGE == "#processes") {
+        show_section('processes_container');
+    } else {
+        hide_section('processes_container');
+    }
+    if (ON_PAGE == "#commissions") {
+        show_section('commissions_container');
+    } else {
+        hide_section('commissions_container');
     }
     // if (ON_PAGE == "#processes") {
     //     show_processes();
