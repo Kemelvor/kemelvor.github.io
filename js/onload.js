@@ -146,10 +146,29 @@ function ensureViewerStyles() {
         .iv_prev{ left:10px; }
         .iv_next{ right:10px; }
         .iv_nav_btn:hover{ background: rgba(40,40,40,0.7); }
-        .iv_zoom_badge{ position:absolute; left:10px; bottom:10px; z-index:3; color:#ddd; background: rgba(20,20,20,0.7); border:1px solid #2a2a2a; border-radius:8px; padding:4px 8px; font: 600 12px/1 Rubik,system-ui,sans-serif; }
+    .iv_zoom_badge{ position:absolute; left:10px; bottom:10px; z-index:3; color:#ddd; background: rgba(20,20,20,0.7); border:1px solid #2a2a2a; border-radius:8px; padding:4px 8px; font: 600 12px/1 Rubik,system-ui,sans-serif; }
+
+    /* Mobile simple viewer */
+    .mv_overlay{ position: fixed; inset:0; background:#000; z-index:10000; display:flex; align-items:center; justify-content:center; touch-action:none; }
+    .mv_topbar{ position:absolute; top:0; left:0; right:0; height:52px; display:flex; align-items:center; gap:12px; padding:8px 12px; color:#eee; font:600 13px/1 Rubik,system-ui,sans-serif; backdrop-filter: blur(8px); background: rgba(16,16,16,0.55); border-bottom:1px solid rgba(255,255,255,0.08); }
+    .mv_tags{ display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
+    .mv_tag{ background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#e6e6e6; padding:6px 10px; border-radius:999px; white-space:nowrap; font-weight:600; }
+    .mv_close{ position:absolute; right:8px; top:8px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:999px; border:1px solid rgba(255,255,255,0.18); background: rgba(24,24,24,0.6); color:#eee; font:700 16px/1 Rubik,system-ui,sans-serif; }
+    .mv_canvas{ position:absolute; left:0; top:0; right:0; bottom:0; overflow:hidden; }
+    .mv_wrap{ position:absolute; left:50%; top:50%; transform: translate(-50%, -50%); width:0; height:0; }
+    .mv_img{ position:absolute; left:50%; top:50%; transform: translate(-50%, -50%); transform-origin:50% 50%; user-select:none; touch-action:none; max-width:none; max-height:none; }
     `;
     document.head.appendChild(style);
     viewerStylesInjected = true;
+}
+
+function isMobileLike() {
+    try {
+        const coarse = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        const touch = ('ontouchstart' in window);
+        const small = Math.min(window.innerWidth || 0, window.innerHeight || 0) < 700;
+        return coarse || (touch && small);
+    } catch (_) { return false; }
 }
 
 function formatBytes(bytes) {
@@ -183,6 +202,10 @@ async function fetchFileSize(url) {
 
 function openImageViewer({ fname, date, index = null, list = null }) {
     ensureViewerStyles();
+    // Route touch-first devices to a simpler mobile viewer
+    if (isMobileLike()) {
+        return openMobileViewer({ fname, date });
+    }
     const overlay = document.createElement('div');
     overlay.className = 'iv_overlay';
 
@@ -198,7 +221,7 @@ function openImageViewer({ fname, date, index = null, list = null }) {
     title.textContent = fname;
     const dateEl = document.createElement('div');
     dateEl.className = 'iv_tag';
-    dateEl.textContent = `Date: ${date ? date.toLocaleString() : 'Unknown'}`;
+    dateEl.textContent = `Date: ${date ? date.toLocaleString().split(',')[0] : 'Unknown'}`;
     const sizeEl = document.createElement('div');
     sizeEl.className = 'iv_tag';
     sizeEl.textContent = 'Size: …';
@@ -593,6 +616,7 @@ function openImageViewer({ fname, date, index = null, list = null }) {
         streamImageWithProgress(fullUrl);
     } else {
         // For GIF, just load directly (no progress)
+        img.addEventListener('load', () => { initFromImage(); scale = minScale; centerAtCurrentScale(); }, { once: true });
         img.src = fullUrl;
         progress.style.display = 'none';
     }
@@ -614,13 +638,13 @@ function openImageViewer({ fname, date, index = null, list = null }) {
                 const date2 = Number.isFinite(tsSec2) ? new Date(tsSec2 * 1000) : new Date(item.date);
                 dateEl.textContent = `Date: ${date2 ? date2.toLocaleString() : 'Unknown'}`;
             } catch (_) { }
-            // Reset state; keep zoom/pos if same aspect? For simplicity, fit again
-            userInteracted = false; scale = minScale; centerAtCurrentScale();
+            // Defer reset until the new image loads so minScale uses its natural size
+            userInteracted = false;
             // Swap URLs
             const nuFull = `/home/src/art/${nextFname}`;
             const isGif2 = nextFname.toLowerCase().endsWith('.gif');
             if (!isGif2) { progress.style.display = ''; progressBar.style.width = '0%'; streamImageWithProgress(nuFull); }
-            else { img.src = nuFull; progress.style.display = 'none'; }
+            else { img.addEventListener('load', () => { initFromImage(); scale = minScale; centerAtCurrentScale(); }, { once: true }); img.src = nuFull; progress.style.display = 'none'; }
             // Preload neighbors
             const neighbor = (k) => {
                 if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/home/src/art/${f}`; const tmp = new Image(); tmp.src = u; }
@@ -1184,4 +1208,155 @@ function go_to_tab() {
     // } else {
     //     hide_processes();
     // }
+}
+
+// Mobile simple viewer: pinch-zoom, pan, rotate, close button, top blurred bar
+function openMobileViewer({ fname, date }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'mv_overlay';
+    const topbar = document.createElement('div');
+    topbar.className = 'mv_topbar';
+    const tags = document.createElement('div');
+    tags.className = 'mv_tags';
+    const resTag = document.createElement('div');
+    resTag.className = 'mv_tag';
+    resTag.textContent = 'Resolution: …';
+    const dateTag = document.createElement('div');
+    dateTag.className = 'mv_tag';
+    try { dateTag.textContent = `Date: ${date ? date.toLocaleString() : 'Unknown'}`; } catch (_) { dateTag.textContent = 'Date: Unknown'; }
+    tags.append(resTag, dateTag);
+    const btnClose = document.createElement('button');
+    btnClose.className = 'mv_close';
+    btnClose.setAttribute('aria-label', 'Close');
+    btnClose.textContent = '✕';
+    const canvas = document.createElement('div');
+    canvas.className = 'mv_canvas';
+    const wrap = document.createElement('div');
+    wrap.className = 'mv_wrap';
+    const img = document.createElement('img');
+    img.className = 'mv_img';
+    img.alt = fname;
+    img.draggable = false;
+    img.decoding = 'async';
+    const fullUrl = `/home/src/art/${fname}`;
+    img.src = fullUrl;
+    wrap.appendChild(img);
+    canvas.appendChild(wrap);
+    topbar.appendChild(tags);
+    overlay.appendChild(canvas);
+    overlay.appendChild(topbar);
+    overlay.appendChild(btnClose);
+    document.body.appendChild(overlay);
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    function close() {
+        overlay.remove();
+        document.body.style.overflow = prevOverflow;
+    }
+    btnClose.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    let natW = 0, natH = 0;
+    let scale = 1, rotate = 0; // radians
+    let tx = 0, ty = 0; // translation in px (apply to wrap)
+    let minScale = 1;
+    let touches = [];
+    let pinch = null; // { s0, r0, dist0, angle0, qAnchor:[x,y], ids:[idA,idB] }
+
+    function apply() {
+        wrap.style.transform = `translate(-50%, -50%) translate(${tx}px, ${ty}px) rotate(${rotate}rad) scale(${scale})`;
+    }
+    function computeMin() {
+        const vw = canvas.clientWidth, vh = canvas.clientHeight;
+        if (!natW || !natH || !vw || !vh) return 1;
+        return Math.min(vw / natW, vh / natH, 1);
+    }
+    function toLocal(px, py) {
+        // Map canvas point p -> image local coordinates q (origin at image center)
+        // wrap is centered at canvas center; tx,ty are offset from that center
+        const cos = Math.cos(rotate), sin = Math.sin(rotate);
+        const dx = px - (canvas.clientWidth / 2) - tx;
+        const dy = py - (canvas.clientHeight / 2) - ty;
+        // inverse rotate then inverse scale
+        const rx = cos * dx + sin * dy;
+        const ry = -sin * dx + cos * dy;
+        return [rx / scale, ry / scale];
+    }
+    function solveTranslateForAnchor(px, py, qx, qy) {
+        // Given desired p and current r,s, compute tx,ty keeping q fixed under p
+        const cos = Math.cos(rotate), sin = Math.sin(rotate);
+        const sx = qx * scale, sy = qy * scale;
+        const rx = cos * sx - sin * sy;
+        const ry = sin * sx + cos * sy;
+        // wrap is centered; translate relative to canvas center
+        tx = (px - (canvas.clientWidth / 2)) - rx; 
+        ty = (py - (canvas.clientHeight / 2)) - ry;
+    }
+    function setPinchBaseline(a, b) {
+        const rect = canvas.getBoundingClientRect();
+        const midx = ((a.clientX + b.clientX) / 2) - rect.left;
+        const midy = ((a.clientY + b.clientY) / 2) - rect.top;
+        const dist0 = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+        const angle0 = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+        const [qx, qy] = toLocal(midx, midy);
+        pinch = { s0: scale, r0: rotate, dist0, angle0, qAnchor: [qx, qy], ids: [a.identifier, b.identifier] };
+        // reset last pan deltas
+        delete img._lx; delete img._ly;
+    }
+
+    img.addEventListener('load', () => {
+        natW = img.naturalWidth; natH = img.naturalHeight;
+        resTag.textContent = `Resolution: ${natW} × ${natH}`;
+        minScale = computeMin();
+        scale = minScale; tx = 0; ty = 0; rotate = 0; apply();
+    }, { once: true });
+
+    overlay.addEventListener('touchstart', (e) => {
+        for (const t of e.changedTouches) touches.push(t);
+        if (touches.length > 2) touches = touches.slice(-2);
+        if (touches.length === 2) {
+            setPinchBaseline(touches[0], touches[1]);
+        }
+    }, { passive: true });
+    overlay.addEventListener('touchmove', (e) => {
+        if (!touches.length) return;
+        e.preventDefault();
+        const updates = new Map();
+        for (const t of e.changedTouches) updates.set(t.identifier, t);
+        touches = touches.map(t => updates.get(t.identifier) || t);
+        if (touches.length === 1) {
+            const t = touches[0];
+            const cx = t.clientX, cy = t.clientY;
+            if (img._lx == null) { img._lx = cx; img._ly = cy; }
+            tx += (cx - img._lx); ty += (cy - img._ly);
+            img._lx = cx; img._ly = cy; apply();
+        } else if (touches.length >= 2) {
+            const [a, b] = touches;
+            // Reset baseline if ids changed or missing
+            if (!pinch || !pinch.ids || pinch.ids[0] !== a.identifier || pinch.ids[1] !== b.identifier) {
+                setPinchBaseline(a, b);
+            }
+            const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+            const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+            const rect = canvas.getBoundingClientRect();
+            const midx = ((a.clientX + b.clientX) / 2) - rect.left;
+            const midy = ((a.clientY + b.clientY) / 2) - rect.top;
+            // Update scale and rotate from baseline
+            const rawScale = pinch.s0 * (dist / Math.max(1, pinch.dist0));
+            scale = Math.max(minScale * 0.5, Math.min(8, rawScale));
+            rotate = pinch.r0 + (angle - pinch.angle0);
+            // Keep the anchor point under the midpoint
+            const [qx, qy] = pinch.qAnchor;
+            solveTranslateForAnchor(midx, midy, qx, qy);
+            apply();
+        }
+    }, { passive: false });
+    overlay.addEventListener('touchend', (e) => {
+        const ids = new Set(Array.from(e.changedTouches).map(t => t.identifier));
+        touches = touches.filter(t => !ids.has(t.identifier));
+        if (touches.length < 2) { pinch = null; }
+        if (!touches.length) { delete img._lx; delete img._ly; }
+    });
+    overlay.addEventListener('touchcancel', () => { touches = []; pinch = null; delete img._lx; delete img._ly; });
 }
