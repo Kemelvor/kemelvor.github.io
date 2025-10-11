@@ -174,6 +174,7 @@ body {
     object-fit: contain;
     /* no cropping */
     display: block;
+    -webkit-user-drag: none;
 }
 
 .artwork_image p {
@@ -189,20 +190,44 @@ body {
     /* high contrast base */
     mix-blend-mode: difference;
     /* invert against background */
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
-    /* fallback contrast */
-    width: 100%;
-    /* span full frame width */
-    border-radius: 0;
-    justify-self: center;
-    max-width: 100%;
-    transition: all 0.3s ease;
-    backdrop-filter: blur(0px);
-}
 
-.artwork_image:hover p {
-    color: #acacac;
-    backdrop-filter: blur(10px);
+    /* Global copy/screenshot blackout */
+    .copy_block_overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.94);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        text-align: center;
+        padding: 24px;
+    }
+    .copy_block_overlay .msg {
+        font: 800 28px/1.3 Rubik, system-ui, sans-serif;
+        letter-spacing: 1px;
+    }
+
+    /* Optional: hide visual content on print */
+    @media print {
+        .artwork_container,
+        .iv_panel { display: none !important; }
+    }
+    font: 700 22px/1 Rubik, system-ui, sans-serif;
+    color: rgba(255, 255, 255, 0.12);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transform: rotate(-25deg);
+    transform-origin: center;
+    pointer-events: none;
+    /* tiled effect using multiple shadows */
+    background-image:
+        repeating-linear-gradient(-25deg,
+            rgba(255, 255, 255, 0.10) 0px,
+            rgba(255, 255, 255, 0.10) 2px,
+            transparent 2px,
+            transparent 42px);
+    mix-blend-mode: overlay;
 }
 
 /* GIF overlay + play button */

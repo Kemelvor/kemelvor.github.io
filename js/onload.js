@@ -166,6 +166,8 @@ async function fetchFileSize(url) {
     return null;
 }
 
+// no watermark tile (removed per request)
+
 function openImageViewer({ fname, date }) {
     ensureViewerStyles();
     const overlay = document.createElement('div');
@@ -236,6 +238,20 @@ function openImageViewer({ fname, date }) {
     panel.appendChild(progress);
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
+    // Blackout overlay (created on detection)
+    let copyBlockOverlay = null;
+    function ensureCopyBlock() {
+        if (copyBlockOverlay) return copyBlockOverlay;
+        const div = document.createElement('div');
+        div.className = 'copy_block_overlay';
+        const p = document.createElement('div');
+        p.className = 'msg';
+        p.textContent = 'DO NOT COPY';
+        div.appendChild(p);
+        document.body.appendChild(div);
+        copyBlockOverlay = div;
+        return div;
+    }
 
     let natW = 0, natH = 0;
     let scale = 1, minScale = 1, maxScale = 8;
@@ -517,6 +533,7 @@ function generateArtworks() {
                 const img = document.createElement("img");
                 img.loading = "lazy";
                 img.alt = artwork.fname;
+                img.draggable = false;
 
                 const url = `/home/src/compact_art/${artwork.fname}`;
                 const setWrapperWidthFromImage = () => {
@@ -588,6 +605,7 @@ function generateArtworks() {
                         ev.stopPropagation();
                         openImageViewer({ fname: artwork.fname, date });
                     });
+                    // handled by global anti-copy handlers
 
                     // Hover preloading for faster click
                     let hoverPreloaded = false;
@@ -624,6 +642,7 @@ function generateArtworks() {
                     u2.src = p.hq;
                     // Click opens viewer
                     img.addEventListener('click', () => openImageViewer({ fname: artwork.fname, date }));
+                    // handled by global anti-copy handlers
                 }
 
                 const caption = document.createElement("p");
@@ -740,6 +759,55 @@ document.addEventListener("DOMContentLoaded", function () {
 
     });
     go_to_tab();
+    // Global anti-copy handlers
+    const blockEvents = ['copy', 'cut', 'contextmenu', 'dragstart'];
+    const showBlackout = () => {
+        // Try to find existing overlay from viewer scope
+        let overlay = document.querySelector('.copy_block_overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'copy_block_overlay';
+            const msg = document.createElement('div');
+            msg.className = 'msg';
+            msg.textContent = 'DO NOT COPY';
+            overlay.appendChild(msg);
+            document.body.appendChild(overlay);
+        }
+        overlay.style.display = '';
+        // Attempt to clear clipboard (best-effort)
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText('');
+        }
+    };
+    const hideBlackout = () => {
+        const overlay = document.querySelector('.copy_block_overlay');
+        if (overlay) overlay.style.display = 'none';
+    };
+    blockEvents.forEach(ev => document.addEventListener(ev, (e) => {
+        e.preventDefault();
+        showBlackout();
+    }));
+    // Detect PrintScreen key (PrtSc) and OS screenshot combos where possible
+    window.addEventListener('keydown', (e) => {
+        // PrintScreen on many layouts
+        if (e.key === 'PrintScreen') {
+            e.preventDefault();
+            showBlackout();
+        }
+        // Common screenshot combos (best-effort; cannot reliably block)
+        if ((e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) || // some tools
+            (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4'))) { // macOS patterns
+            showBlackout();
+        }
+    });
+    // Visibility change (screen recording tools may trigger or not); best-effort deterrent
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            showBlackout();
+        }
+    });
+    // Hide blackout on click (optional) so site is usable again
+    document.addEventListener('click', () => hideBlackout(), { capture: true });
 });
 
 window.addEventListener("hashchange", () => {
