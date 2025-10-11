@@ -712,9 +712,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     let activeIndex = 0;
 
-    // Initial placement under the first item
-    positionHighlightToItem(items[activeIndex]);
-
     items.forEach((item, index) => {
         item.addEventListener("mouseenter", () => {
             positionHighlightToItem(item);
@@ -748,6 +745,38 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
+
+        // Adaptive navbar height: when page is zoomed in heavily, shrink navbar to free space
+        let baseNavH = null;
+        const root = document.documentElement;
+        const getScale = () => (window.visualViewport && typeof window.visualViewport.scale === 'number')
+            ? window.visualViewport.scale
+            : (window.devicePixelRatio || 1);
+        const updateNavHeight = () => {
+            try {
+                // Cache initial base from computed style on first run
+                if (baseNavH == null) {
+                    const cs = getComputedStyle(root).getPropertyValue('--nav-h').trim();
+                    const px = parseFloat(cs);
+                    baseNavH = Number.isFinite(px) ? px : 64;
+                }
+                const scale = getScale();
+                // Only shrink when notably zoomed in
+                if (scale > 1.15) {
+                    // Shrink inversely with scale, but keep within [38px, base]
+                    const target = Math.max(38, Math.min(baseNavH, Math.round(baseNavH / Math.min(scale, 2.2))));
+                    root.style.setProperty('--nav-h', `${target}px`);
+                } else {
+                    root.style.setProperty('--nav-h', `${baseNavH}px`);
+                }
+            } catch (_) { /* noop */ }
+        };
+        updateNavHeight();
+        // Listen for zoom/resize changes
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', updateNavHeight);
+        }
+        window.addEventListener('resize', updateNavHeight);
         // Ensure the navbar banner plays (not paused): set src from data-gif
         const bannerImg = document.querySelector('img.banner');
         if (bannerImg) {
@@ -758,6 +787,55 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
     });
+
+    // Navbar mobile mode: keep banner/items visible until overflow, then switch to top-right button menu
+    const itemsBar = document.querySelector('.navbar_items');
+    const navToggle = document.querySelector('.nav_toggle');
+    const updateNavbarMode = () => {
+        if (!navbar || !itemsBar) return;
+        // Measure in desktop state to detect real overflow
+        const wasMobile = navbar.classList.contains('is-mobile');
+        if (wasMobile) {
+            navbar.classList.remove('is-mobile');
+            itemsBar.removeAttribute('data-open');
+        }
+        // Using scrollWidth vs clientWidth to detect overflow of menu items
+        const overflow = itemsBar.scrollWidth > (itemsBar.clientWidth + 1);
+        if (overflow) {
+            navbar.classList.add('is-mobile');
+            itemsBar.removeAttribute('data-open');
+        }
+    };
+    // Toggle dropdown in mobile mode
+    if (navToggle) {
+        navToggle.addEventListener('click', (e) => {
+            if (!navbar.classList.contains('is-mobile')) return;
+            e.stopPropagation();
+            const open = itemsBar.getAttribute('data-open') === 'true';
+            itemsBar.setAttribute('data-open', open ? 'false' : 'true');
+            navToggle.setAttribute('aria-expanded', String(!open));
+        });
+    }
+    // Close when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!navbar.classList.contains('is-mobile')) return;
+        if (itemsBar.getAttribute('data-open') === 'true' && !navbar.contains(e.target)) {
+            itemsBar.setAttribute('data-open', 'false');
+            if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+        }
+    }, { capture: true });
+    // Close after selecting a menu item in mobile
+    items.forEach((item) => item.addEventListener('click', () => {
+        if (!navbar.classList.contains('is-mobile')) return;
+        itemsBar.setAttribute('data-open', 'false');
+        if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+    }));
+    // Re-evaluate on resize and load
+    window.addEventListener('resize', updateNavbarMode);
+    window.addEventListener('load', updateNavbarMode);
+    // Initial evaluation
+    requestAnimationFrame(updateNavbarMode);
+
     go_to_tab();
     // Global anti-copy handlers
     const blockEvents = ['copy', 'cut', 'contextmenu', 'dragstart'];
@@ -785,7 +863,10 @@ document.addEventListener("DOMContentLoaded", function () {
     };
     blockEvents.forEach(ev => document.addEventListener(ev, (e) => {
         e.preventDefault();
-        showBlackout();
+        if (ev === 'contextmenu' && e.target.tagName === 'A') {
+            // Allow context menu on links
+            return true;
+        }
     }));
     // Detect PrintScreen key (PrtSc) and OS screenshot combos where possible
     window.addEventListener('keydown', (e) => {
@@ -797,12 +878,6 @@ document.addEventListener("DOMContentLoaded", function () {
         // Common screenshot combos (best-effort; cannot reliably block)
         if ((e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) || // some tools
             (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4'))) { // macOS patterns
-            showBlackout();
-        }
-    });
-    // Visibility change (screen recording tools may trigger or not); best-effort deterrent
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') {
             showBlackout();
         }
     });
