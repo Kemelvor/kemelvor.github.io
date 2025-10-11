@@ -14,56 +14,99 @@ function positionHighlightToItem(item) {
     highlight.style.width = `${widthPx}px`;
 }
 
-// Create a PNG data URL of the first frame of a GIF
-function createGifFirstFrameDataUrl(gifUrl) {
-    return new Promise((resolve, reject) => {
+// Prioritized, limited-concurrency preloader for GIFs
+const PreloadManager = (() => {
+    const MAX_CONCURRENT = 2;
+    const queue = []; // {url, priority, resolvers}
+    const states = new Map(); // url -> { status: 'queued'|'loading'|'loaded', promise }
+    let inFlight = 0;
+
+    function runNext() {
+        if (inFlight >= MAX_CONCURRENT) return;
+        if (queue.length === 0) return;
+        // Highest priority first ('high' > 'normal' > 'low')
+        queue.sort((a, b) => ({ high: 3, normal: 2, low: 1 }[b.priority] - ({ high: 3, normal: 2, low: 1 }[a.priority])));
+        const task = queue.shift();
+        if (!task) return;
+        const { url, resolvers } = task;
+        const st = states.get(url);
+        if (!st || st.status === 'loaded') {
+            resolvers.forEach(r => r());
+            runNext();
+            return;
+        }
+        inFlight++;
+        st.status = 'loading';
         const img = new Image();
-        // Same-origin assets, but keep anonymous to allow canvas export
-        img.crossOrigin = "anonymous";
+        img.decoding = 'async';
+        img.loading = 'eager';
         img.onload = () => {
-            try {
-                const canvas = document.createElement("canvas");
-                canvas.width = img.naturalWidth || img.width;
-                canvas.height = img.naturalHeight || img.height;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(img, 0, 0);
-                const dataUrl = canvas.toDataURL("image/png");
-                resolve(dataUrl);
-            } catch (e) {
-                reject(e);
-            }
+            st.status = 'loaded';
+            inFlight--;
+            resolvers.forEach(r => r());
+            runNext();
         };
-        img.onerror = reject;
-        img.src = gifUrl;
-    });
+        img.onerror = () => {
+            // consider errored as resolved to avoid stalls
+            st.status = 'loaded';
+            inFlight--;
+            resolvers.forEach(r => r());
+            runNext();
+        };
+        img.src = url;
+    }
+
+    function preload(url, priority = 'normal') {
+        if (!url) return Promise.resolve();
+        const existing = states.get(url);
+        if (existing && existing.status === 'loaded') return Promise.resolve();
+        if (existing && existing.status !== 'loaded') {
+            // Upgrade priority by reinserting with higher priority
+            return new Promise(res => {
+                queue.push({ url, priority, resolvers: [res] });
+                runNext();
+            });
+        }
+        // New entry
+        let resolver;
+        const prom = new Promise(res => { resolver = res; });
+        states.set(url, { status: 'queued', promise: prom });
+        queue.push({ url, priority, resolvers: [resolver] });
+        runNext();
+        return prom;
+    }
+
+    return { preload };
+})();
+
+// Given a GIF url, compute its poster path in compact_art_posters
+function gifPosterUrlFromGif(gifUrl) {
+    try {
+        // Expecting path like /home/src/compact_art/name.gif
+        const lastSlash = gifUrl.lastIndexOf('/')
+        const base = gifUrl.substring(0, lastSlash);
+        const file = gifUrl.substring(lastSlash + 1);
+        const stem = file.replace(/\.[^.]+$/i, '');
+        return {
+            ulq: `${base}_posters_ulq/${stem}.png`,
+            lq: `${base}_posters_lq/${stem}.png`,
+            hq: `${base}_posters/${stem}.png`,
+        };
+    } catch (_) {
+        return { ulq: gifUrl, lq: gifUrl, hq: gifUrl };
+    }
 }
 
-// Given an <img> and its gif url, set it to show a still image until hover
-async function enableGifPlayOnHover(imgEl, gifUrl) {
-    try {
-        const stillUrl = await createGifFirstFrameDataUrl(gifUrl);
-        // Start paused with still frame
-        imgEl.src = stillUrl;
-        imgEl.dataset.gifSrc = gifUrl;
-        imgEl.dataset.stillSrc = stillUrl;
-
-        // Play on hover, pause on leave
-        imgEl.addEventListener("mouseenter", () => {
-            imgEl.src = imgEl.dataset.gifSrc;
-        });
-        imgEl.addEventListener("mouseleave", () => {
-            imgEl.src = imgEl.dataset.stillSrc;
-        });
-
-        // For touch, toggle play on tap
-        imgEl.addEventListener("click", () => {
-            const isPlaying = imgEl.src.endsWith(".gif") || imgEl.src.includes(".gif?");
-            imgEl.src = isPlaying ? imgEl.dataset.stillSrc : imgEl.dataset.gifSrc;
-        });
-    } catch (e) {
-        // If we fail to create a still, just leave the GIF as-is
-        imgEl.src = gifUrl;
-    }
+function progressiveUrlsForImage(url) {
+    // Given /home/src/compact_art/name.ext -> ulq/lq/hq variants
+    const lastSlash = url.lastIndexOf('/')
+    const base = url.substring(0, lastSlash);
+    const file = url.substring(lastSlash + 1);
+    return {
+        ulq: `${base.replace('/compact_art', '/compact_art_ulq')}/${file}`,
+        lq: `${base.replace('/compact_art', '/compact_art_lq')}/${file}`,
+        hq: url,
+    };
 }
 
 function generateArtworks() {
@@ -82,7 +125,7 @@ function generateArtworks() {
             img.loading = "lazy";
             img.alt = artwork.fname;
 
-            const url = `/home/src/art/${artwork.fname}`;
+            const url = `/home/src/compact_art/${artwork.fname}`;
             const setWrapperWidthFromImage = () => {
                 const h = wrapper.clientHeight || parseFloat(getComputedStyle(wrapper).height) || 220;
                 const w = img.naturalWidth;
@@ -93,18 +136,101 @@ function generateArtworks() {
             };
 
             if (artwork.fname.toLowerCase().endsWith(".gif")) {
-                // Start paused; generate still and wire hover behavior
-                enableGifPlayOnHover(img, url).finally(() => {
-                    // After image has a still/gif set, wait for load to compute width
-                    if (img.complete) {
-                        setWrapperWidthFromImage();
-                    } else {
-                        img.addEventListener('load', setWrapperWidthFromImage, { once: true });
-                    }
-                });
-            } else {
+                // Show poster frame with overlay; only load/play GIF on click
+                const posterUrls = gifPosterUrlFromGif(url);
                 img.addEventListener('load', setWrapperWidthFromImage, { once: true });
-                img.src = url;
+                // Start with ULQ poster, then upgrade to LQ, then HQ silently
+                img.src = posterUrls.ulq;
+                // Schedule upgrades
+                const upgradeTo = (nextUrl) => {
+                    const temp = new Image();
+                    temp.onload = () => { img.src = nextUrl; };
+                    temp.src = nextUrl;
+                };
+                upgradeTo(posterUrls.lq);
+                upgradeTo(posterUrls.hq);
+                img.alt = `${artwork.fname} (GIF)`;
+
+                // Build overlay with play button
+                const overlay = document.createElement('div');
+                overlay.className = 'gif_overlay';
+                const playBtn = document.createElement('div');
+                playBtn.className = 'gif_play_btn';
+                overlay.appendChild(playBtn);
+                wrapper.appendChild(overlay);
+
+                let loaded = false;
+                const play = async () => {
+                    if (loaded) return;
+                    loaded = true;
+                    // Show loading state
+                    overlay.classList.add('loading');
+                    // Prioritize the clicked GIF
+                    await PreloadManager.preload(url, 'high');
+                    // Swap source and wait for load event before removing overlay
+                    const tryLoad = (src) => new Promise((resolve) => {
+                        let settled = false;
+                        const timeout = setTimeout(() => {
+                            if (!settled) { settled = true; cleanup(); resolve(false); }
+                        }, 8000);
+                        const cleanup = () => {
+                            clearTimeout(timeout);
+                            img.removeEventListener('load', onLoad);
+                            img.removeEventListener('error', onError);
+                        };
+                        const onLoad = () => { if (!settled) { settled = true; cleanup(); resolve(true); } };
+                        const onError = () => { if (!settled) { settled = true; cleanup(); resolve(false); } };
+                        img.addEventListener('load', onLoad, { once: true });
+                        img.addEventListener('error', onError, { once: true });
+                        img.src = src;
+                    });
+
+                    let ok = await tryLoad(url);
+                    if (!ok) {
+                        // Retry with cache-bust if first attempt fails or times out
+                        const busted = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+                        ok = await tryLoad(busted);
+                    }
+                    overlay.remove();
+                };
+
+                // Click to load+play (supports both overlay and image click)
+                overlay.addEventListener('click', play);
+                img.addEventListener('click', play);
+
+                // Hover preloading for faster click
+                let hoverPreloaded = false;
+                const maybePreloadOnHover = () => {
+                    if (!hoverPreloaded) {
+                        hoverPreloaded = true;
+                        PreloadManager.preload(url, 'normal');
+                    }
+                };
+                wrapper.addEventListener('mouseenter', maybePreloadOnHover, { passive: true });
+
+                // Near-viewport preloading using IntersectionObserver
+                if ('IntersectionObserver' in window) {
+                    const io = new IntersectionObserver((entries) => {
+                        entries.forEach((entry) => {
+                            if (entry.isIntersecting || entry.intersectionRatio > 0) {
+                                PreloadManager.preload(url, 'low');
+                                io.disconnect();
+                            }
+                        });
+                    }, { root: null, rootMargin: '200px 0px', threshold: 0.01 });
+                    io.observe(wrapper);
+                }
+            } else {
+                // Progressive non-GIF images: ULQ -> LQ -> HQ
+                const p = progressiveUrlsForImage(url);
+                img.addEventListener('load', setWrapperWidthFromImage, { once: true });
+                img.src = p.ulq;
+                const u1 = new Image();
+                u1.onload = () => { img.src = p.lq; };
+                u1.src = p.lq;
+                const u2 = new Image();
+                u2.onload = () => { img.src = p.hq; };
+                u2.src = p.hq;
             }
 
             const caption = document.createElement("p");
@@ -183,25 +309,5 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
 
-        // Only pause/hover-play GIFs within the artwork section
-        const artworkContainer = document.getElementById('artwork_container');
-        if (artworkContainer) {
-            const gifImgs = Array.from(artworkContainer.querySelectorAll('img'))
-                .filter(img => (img.getAttribute('src') || '').toLowerCase().endsWith('.gif'));
-            gifImgs.forEach(img => {
-                const gifUrl = img.getAttribute('src');
-                if (!img.dataset || (!img.dataset.gifSrc && !img.dataset.stillSrc)) {
-                    enableGifPlayOnHover(img, gifUrl);
-                }
-            });
-
-            const dataGifImgs = Array.from(artworkContainer.querySelectorAll('img[data-gif]'));
-            dataGifImgs.forEach(img => {
-                const gifUrl = img.getAttribute('data-gif');
-                if (gifUrl) {
-                    enableGifPlayOnHover(img, gifUrl);
-                }
-            });
-        }
     });
 });

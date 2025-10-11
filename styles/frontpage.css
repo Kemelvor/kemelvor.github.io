@@ -197,6 +197,84 @@ body {
     backdrop-filter: blur(10px);
 }
 
+/* GIF overlay + play button */
+.gif_overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.25);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+    /* enable only on hover via parent */
+}
+
+.artwork_image:hover .gif_overlay {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.gif_play_btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gif_play_btn:after {
+    content: "";
+    display: block;
+    margin-left: 4px;
+    /* visually center the triangle */
+    width: 0;
+    height: 0;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+    border-left: 16px solid #333;
+}
+
+/* Grey frame on hover */
+.artwork_image:hover {
+    outline: 3px solid rgba(100, 100, 100, 0.35);
+}
+
+/* Loading state: spinner */
+.gif_overlay.loading {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.gif_overlay.loading .gif_play_btn {
+    position: relative;
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.gif_overlay.loading .gif_play_btn:after {
+    content: "";
+    width: 22px;
+    height: 22px;
+    border: 3px solid rgba(51, 51, 51, 0.25);
+    border-top-color: #333;
+    border-radius: 50%;
+    margin: 0;
+    animation: spin 0.8s linear infinite;
+    border-left-color: #333;
+    border-bottom-color: rgba(51, 51, 51, 0.25);
+    border-right-color: rgba(51, 51, 51, 0.25);
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Small screens: slightly tighter spacing */
 @media (max-width: 480px) {
     .navbar {
