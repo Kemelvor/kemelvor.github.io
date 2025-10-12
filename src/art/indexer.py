@@ -16,7 +16,6 @@ for p in current.iterdir():
         ".tiff",
         ".svg",
         ".avif",
-        ".mp4",
     ]:
         fpath = p.name
         fid = p.stem

@@ -112,6 +112,62 @@ function progressiveUrlsForImage(url) {
     };
 }
 
+// --- Progressive upgrade observers (ULQ -> LQ -> HQ as you scroll) ---------
+let __LQ_OBSERVER__ = null;
+let __HQ_OBSERVER__ = null;
+
+function ensureProgressiveObservers() {
+    if (!('IntersectionObserver' in window)) return null;
+    if (!__LQ_OBSERVER__) {
+        // Start upgrading to LQ when near viewport
+        __LQ_OBSERVER__ = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const img = entry.target;
+                if (!entry.isIntersecting && entry.intersectionRatio <= 0) return;
+                const next = img.dataset.lq;
+                if (next && img.dataset.resLevel === 'ulq') {
+                    upgradeSrc(img, next, 'lq');
+                }
+                __LQ_OBSERVER__ && __LQ_OBSERVER__.unobserve(img);
+            });
+        }, { root: null, rootMargin: '800px 0px', threshold: 0.01 });
+    }
+    if (!__HQ_OBSERVER__) {
+        // Upgrade to HQ when actually in/very close to viewport
+        __HQ_OBSERVER__ = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const img = entry.target;
+                if (!entry.isIntersecting && entry.intersectionRatio <= 0.05) return;
+                const next = img.dataset.hq;
+                if (next && img.dataset.resLevel !== 'hq') {
+                    // Jump to HQ directly; cancel pending LQ upgrade
+                    img.dataset.lq = '';
+                    try { __LQ_OBSERVER__ && __LQ_OBSERVER__.unobserve(img); } catch (_) { }
+                    upgradeSrc(img, next, 'hq');
+                }
+                __HQ_OBSERVER__ && __HQ_OBSERVER__.unobserve(img);
+            });
+        }, { root: null, rootMargin: '200px 0px', threshold: 0.1 });
+    }
+    return { lq: __LQ_OBSERVER__, hq: __HQ_OBSERVER__ };
+}
+
+function upgradeSrc(img, nextUrl, nextLevel) {
+    if (!nextUrl) return;
+    const curLevel = img.dataset.resLevel || 'ulq';
+    if (curLevel === nextLevel) return;
+    const tmp = new Image();
+    tmp.decoding = 'async';
+    tmp.onload = () => {
+        img.src = nextUrl;
+        img.dataset.resLevel = nextLevel;
+    };
+    tmp.onerror = () => {
+        // Even on error, do not loop; skip upgrade silently
+    };
+    tmp.src = nextUrl;
+}
+
 // --- Image Viewer (modal) ---------------------------------------------------
 let viewerStylesInjected = false;
 
@@ -157,6 +213,11 @@ function ensureViewerStyles() {
     .mv_canvas{ position:absolute; left:0; top:0; right:0; bottom:0; overflow:hidden; }
     .mv_wrap{ position:absolute; left:50%; top:50%; transform: translate(-50%, -50%); width:0; height:0; }
     .mv_img{ position:absolute; left:50%; top:50%; transform: translate(-50%, -50%); transform-origin:50% 50%; user-select:none; touch-action:none; max-width:none; max-height:none; }
+    /* Scroll-driven animation hooks (no CSS transitions; JS drives transforms) */
+    .artwork_animated{ will-change: transform, opacity; }
+    @media (prefers-reduced-motion: reduce){
+        .artwork_animated{ will-change: auto; }
+    }
     `;
     document.head.appendChild(style);
     viewerStylesInjected = true;
@@ -676,6 +737,172 @@ let renderedArtworkKeys = new Set(); // guard against dupes across calls
 let artworksList = []; // ordered list for viewer navigation [{fname, date}]
 let artworkResizeHandler = null;
 let artworkResizeAttached = false;
+// Scroll-driven animator for artwork wrappers
+let scrollAnimator = null;
+function ensureScrollAnimator() {
+    if (scrollAnimator) return scrollAnimator;
+    const state = {
+        items: new Set(),
+        ticking: false,
+        viewTop: 0,
+        viewBottom: 0,
+        viewH: 0,
+        viewLeft: 0,
+        viewRight: 0,
+        container: null,
+        reduceMotion: false,
+        margin: 160,
+        sources: new Set(),
+    };
+    const readEnv = () => {
+        // Prefer the artwork container as the scrolling viewport
+        state.container = document.getElementById('artwork_container') || state.container || null;
+        if (state.container) {
+            const cr = state.container.getBoundingClientRect();
+            state.viewTop = cr.top;
+            state.viewBottom = cr.bottom;
+            state.viewH = Math.max(0, cr.height || (cr.bottom - cr.top));
+            state.viewLeft = cr.left;
+            state.viewRight = cr.right;
+        } else {
+            // Fallback to window viewport
+            const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+            state.viewTop = 0;
+            state.viewBottom = vh;
+            state.viewH = vh;
+            state.viewLeft = 0;
+            state.viewRight = (window.innerWidth || document.documentElement.clientWidth || 0);
+        }
+        try { state.reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { state.reduceMotion = false; }
+    };
+    readEnv();
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+    function computeProgress(el) {
+        const rect = el.getBoundingClientRect();
+        const top = rect.top;
+        const bottom = rect.bottom;
+        const contTop = state.viewTop;
+        const contBottom = state.viewBottom;
+        const h = Math.max(1, rect.height);
+
+        // Exit progress based on edges crossing container edges
+        const pExitTop = top < contTop ? clamp01((contTop - top) / h) : 0;
+        const pExitBottom = bottom > contBottom ? clamp01((bottom - contBottom) / h) : 0;
+
+        // Enter progress (inverse mapping from outside towards fully inside)
+        const pEnterFromTop = bottom < contTop ? clamp01((bottom - contTop) / h) : 1;
+        const pEnterFromBottom = top > contBottom ? clamp01((contBottom - top) / h) : 1;
+
+        // Visibility hint for culling
+        const isVisible = bottom > contTop && top < contBottom;
+
+        return {
+            pExitTop, pExitBottom,
+            pEnterFromTop, pEnterFromBottom,
+            isVisible,
+            h
+        };
+    }
+
+    function apply(el) {
+        if (state.reduceMotion) {
+            el.style.opacity = '';
+            el.style.transform = '';
+            return;
+        }
+        const st = computeProgress(el);
+        let opacity = 1, scale = 1, translateY = 0, translateX = 0, blurPx = 0;
+        const maxMoveY = 24; // px vertical
+        const maxMoveX = 120; // px horizontal spread
+        const maxBlur = 10; // px
+        const minOpacity = 0.55; // keep more visible
+        const exitP = Math.max(st.pExitTop, st.pExitBottom);
+        const pIn = Math.min(st.pEnterFromTop, st.pEnterFromBottom);
+        const pEdge = exitP > 0 ? exitP : (1 - pIn); // 0..1 proximity to edge/outside
+        // Flip curvature: keep effect low while on page, ramp as it moves off
+        const gamma = 3.0;
+        const expE = Math.min(1, Math.max(0, Math.pow(Math.max(0, pEdge), gamma)));
+
+        // Opacity reduces but not fully transparent
+        opacity = 1 - (1 - minOpacity) * expE;
+
+        // Scale: upscale outwards based on edge proximity
+        scale = lerp(1.0, 1.09, expE);
+
+        // Vertical directional move
+        if (exitP > 0) {
+            // Exiting
+            if (st.pExitBottom >= st.pExitTop) {
+                translateY = lerp(0, maxMoveY, expE);
+            } else {
+                translateY = lerp(0, -maxMoveY, expE);
+            }
+        } else {
+            // Entering: move from edge toward rest
+            const fromBottom = st.pEnterFromBottom < st.pEnterFromTop;
+            translateY = fromBottom ? lerp(maxMoveY, 0, pIn) : lerp(-maxMoveY, 0, pIn);
+        }
+
+        // Horizontal spread based on distance from container center
+        const rect = el.getBoundingClientRect();
+        const cx = (rect.left + rect.right) / 2;
+        const contCx = (state.viewLeft + state.viewRight) / 2;
+        const halfW = Math.max(1, (state.viewRight - state.viewLeft) / 2);
+        const dxNorm = Math.max(-1, Math.min(1, (cx - contCx) / halfW)); // -1..1
+        translateX = dxNorm * maxMoveX * expE;
+
+        // Blur increases exponentially near edges
+        blurPx = maxBlur * expE;
+
+        el.style.opacity = String(opacity);
+        el.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        // Apply blur only to the image, not caption/overlay
+        const img = el.querySelector('img');
+        if (img) {
+            img.style.filter = blurPx > 0 ? `blur(${blurPx}px)` : '';
+        }
+    }
+
+    const updateAll = () => {
+        if (state.ticking) return;
+        state.ticking = true;
+        requestAnimationFrame(() => {
+            readEnv();
+            state.items.forEach(el => {
+                const rect = el.getBoundingClientRect();
+                if (rect.bottom < -state.margin || rect.top > state.viewportH + state.margin) {
+                    return; // skip off-screen work
+                }
+                apply(el);
+            });
+            state.ticking = false;
+        });
+    };
+
+    function addScrollSource(src) {
+        if (!src || state.sources.has(src)) return;
+        state.sources.add(src);
+        src.addEventListener('scroll', updateAll, { passive: true });
+    }
+
+    // Default scroll sources
+    // Prefer container if available; also keep window as a fallback
+    if (state.container) addScrollSource(state.container);
+    addScrollSource(window);
+    window.addEventListener('resize', updateAll);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', updateAll);
+
+    scrollAnimator = {
+        add(el) { state.items.add(el); el.classList.add('artwork_animated'); apply(el); updateAll(); },
+        remove(el) { state.items.delete(el); el.classList.remove('artwork_animated'); },
+        refresh() { updateAll(); },
+        observeScrollContainer(el) { addScrollSource(el); },
+    };
+    return scrollAnimator;
+}
 
 function ensureArtworkResizeHandler() {
     if (!artworkResizeHandler) {
@@ -731,6 +958,7 @@ function generateArtworks() {
         .then(response => response.json())
         .then(data => {
             if (!Array.isArray(data)) return; // defensive
+            const observers = ensureProgressiveObservers();
             data.forEach(artwork => {
                 // Build a stable dedup key; prefer unique filename, fallback to date+name
                 const key = (artwork && artwork.fname) ? String(artwork.fname) : `${artwork?.date || ""}|${artwork?.title || ""}`;
@@ -767,15 +995,17 @@ function generateArtworks() {
                     // Show poster frame with overlay; only load/play GIF on click
                     const posterUrls = gifPosterUrlFromGif(url);
                     img.addEventListener('load', setWrapperWidthFromImage, { once: true });
-                    // Start with ULQ poster, then upgrade to LQ, then HQ silently
+                    // Start ultra-low first for fast first paint
                     img.src = posterUrls.ulq;
-                    const upgradeTo = (nextUrl) => {
-                        const temp = new Image();
-                        temp.onload = () => { img.src = nextUrl; };
-                        temp.src = nextUrl;
-                    };
-                    upgradeTo(posterUrls.lq);
-                    upgradeTo(posterUrls.hq);
+                    img.dataset.ulq = posterUrls.ulq;
+                    img.dataset.lq = posterUrls.lq;
+                    img.dataset.hq = posterUrls.hq;
+                    img.dataset.resLevel = 'ulq';
+                    // Observe for progressive upgrades
+                    if (observers) {
+                        observers.lq.observe(img);
+                        observers.hq.observe(img);
+                    }
                     img.alt = `${artwork.fname} (GIF)`;
 
                     // Build overlay with play button
@@ -851,13 +1081,17 @@ function generateArtworks() {
                     // Progressive non-GIF images: ULQ -> LQ -> HQ
                     const p = progressiveUrlsForImage(url);
                     img.addEventListener('load', setWrapperWidthFromImage, { once: true });
+                    // Eager paint with ULQ, upgrade via observers near/in viewport
                     img.src = p.ulq;
-                    const u1 = new Image();
-                    u1.onload = () => { img.src = p.lq; };
-                    u1.src = p.lq;
-                    const u2 = new Image();
-                    u2.onload = () => { img.src = p.hq; };
-                    u2.src = p.hq;
+                    img.dataset.ulq = p.ulq;
+                    img.dataset.lq = p.lq;
+                    img.dataset.hq = p.hq;
+                    img.dataset.resLevel = 'ulq';
+                    const obs = observers || ensureProgressiveObservers();
+                    if (obs) {
+                        obs.lq.observe(img);
+                        obs.hq.observe(img);
+                    }
                     // Click opens viewer
                     img.addEventListener('click', () => openImageViewer({ fname: artwork.fname, date, index: idx, list: artworksList }));
                     // handled by global anti-copy handlers
@@ -870,12 +1104,23 @@ function generateArtworks() {
                 wrapper.appendChild(caption);
                 div.appendChild(wrapper);
                 container.appendChild(div);
+
+                // Register for scroll-driven animation
+                const animator = ensureScrollAnimator();
+                animator.add(wrapper);
             });
             // Mark as loaded and set up resize handling once
             artworksLoaded = true;
             ensureArtworkResizeHandler();
             // Initial pass to ensure widths are correct
-            requestAnimationFrame(() => artworkResizeHandler && artworkResizeHandler());
+            requestAnimationFrame(() => {
+                artworkResizeHandler && artworkResizeHandler();
+                const anim = ensureScrollAnimator();
+                // Observe the artwork container scroll (if it is scrollable)
+                const cont = document.getElementById('artwork_container');
+                if (cont) anim.observeScrollContainer(cont);
+                anim.refresh();
+            });
         })
         .catch(err => {
             console.error("Failed to load artworks:", err);
@@ -1042,14 +1287,6 @@ document.addEventListener("DOMContentLoaded", function () {
             window.visualViewport.addEventListener('resize', updateNavHeight);
         }
         window.addEventListener('resize', updateNavHeight);
-        // Ensure the navbar banner plays (not paused): set src from data-gif
-        const bannerImg = document.querySelector('img.banner');
-        if (bannerImg) {
-            const bannerGif = bannerImg.getAttribute('data-gif');
-            if (bannerGif && !bannerImg.getAttribute('src')) {
-                bannerImg.src = bannerGif;
-            }
-        }
 
     });
 
@@ -1105,6 +1342,22 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener('load', updateNavbarMode);
     // Initial evaluation
     requestAnimationFrame(updateNavbarMode);
+
+    // Prioritize the banner immediately on DOM ready
+    const bannerImg = document.querySelector('img.banner');
+    if (bannerImg) {
+        try { bannerImg.setAttribute('decoding', 'async'); } catch (_) { }
+        try { bannerImg.setAttribute('loading', 'eager'); } catch (_) { }
+        try { bannerImg.setAttribute('fetchpriority', 'high'); } catch (_) { }
+        const bannerGif = bannerImg.getAttribute('data-gif');
+        if (bannerGif) {
+            // If no src yet or it's a placeholder, set it now to start network early
+            const cur = bannerImg.getAttribute('src');
+            if (!cur || cur === '#' || cur.startsWith('data:')) {
+                bannerImg.src = bannerGif;
+            }
+        }
+    }
 
     go_to_tab();
     // Global anti-copy handlers
@@ -1290,7 +1543,7 @@ function openMobileViewer({ fname, date }) {
         const rx = cos * sx - sin * sy;
         const ry = sin * sx + cos * sy;
         // wrap is centered; translate relative to canvas center
-        tx = (px - (canvas.clientWidth / 2)) - rx; 
+        tx = (px - (canvas.clientWidth / 2)) - rx;
         ty = (py - (canvas.clientHeight / 2)) - ry;
     }
     function setPinchBaseline(a, b) {

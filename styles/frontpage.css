@@ -274,7 +274,7 @@ body {
     height: var(--artwork-row-height);
     width: auto;
     /* width varies by image aspect ratio */
-    min-width: 140px;
+    /* min-width: 140px; */
     /* avoid overly skinny columns */
     overflow: hidden;
     background-size: contain;
