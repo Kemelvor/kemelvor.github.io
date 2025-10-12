@@ -159,6 +159,12 @@ function upgradeSrc(img, nextUrl, nextLevel) {
     const tmp = new Image();
     tmp.decoding = 'async';
     tmp.onload = () => {
+        // Ensure animator refreshes when this image updates
+        const onImgLoad = () => {
+            try { ensureScrollAnimator().refresh(); } catch (_) { }
+            img.removeEventListener('load', onImgLoad);
+        };
+        img.addEventListener('load', onImgLoad);
         img.src = nextUrl;
         img.dataset.resLevel = nextLevel;
     };
@@ -904,6 +910,14 @@ function ensureScrollAnimator() {
     return scrollAnimator;
 }
 
+function scheduleScrollRefresh() {
+    try {
+        const anim = ensureScrollAnimator();
+        // Batch into next frame
+        requestAnimationFrame(() => anim.refresh());
+    } catch (_) { }
+}
+
 function ensureArtworkResizeHandler() {
     if (!artworkResizeHandler) {
         artworkResizeHandler = () => {
@@ -978,6 +992,8 @@ function generateArtworks() {
                 img.loading = "lazy";
                 img.alt = artwork.fname;
                 img.draggable = false;
+                // Whenever the image updates, refresh animation frame
+                img.addEventListener('load', scheduleScrollRefresh);
 
                 const url = `/home/src/compact_art/${artwork.fname}`;
                 const setWrapperWidthFromImage = () => {
