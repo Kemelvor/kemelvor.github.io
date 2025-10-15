@@ -265,13 +265,50 @@ async function fetchFileSize(url) {
     return null;
 }
 
+// --- Viewer URL deep-linking helpers ---------------------------------------
+// We use a query parameter (?viewer=<fname>) to avoid conflicting with hash tabs.
+const ViewerURL = (() => {
+    function get() {
+        try {
+            return new URLSearchParams(window.location.search).get('viewer');
+        } catch (_) { return null; }
+    }
+    function setPush(fname) {
+        try {
+            const u = new URL(window.location.href);
+            u.searchParams.set('viewer', fname);
+            history.pushState({ viewer: fname }, '', u);
+        } catch (_) { /* noop */ }
+    }
+    function setReplace(fname) {
+        try {
+            const u = new URL(window.location.href);
+            u.searchParams.set('viewer', fname);
+            history.replaceState({ viewer: fname }, '', u);
+        } catch (_) { /* noop */ }
+    }
+    function clearReplace() {
+        try {
+            const u = new URL(window.location.href);
+            u.searchParams.delete('viewer');
+            history.replaceState({}, '', u);
+        } catch (_) { /* noop */ }
+    }
+    return { get, setPush, setReplace, clearReplace };
+})();
+
+// Track whether the current viewer state was added with pushState (so Close should history.back())
+let __viewerOpenedViaPush = false;
+// Provide a handle for global close/destroy from popstate
+window.__activeViewerDestroy = window.__activeViewerDestroy || null;
+
 // no watermark tile (removed per request)
 
-function openImageViewer({ fname, date, index = null, list = null }) {
+function openImageViewer({ fname, date, index = null, list = null, fromURL = false }) {
     ensureViewerStyles();
     // Route touch-first devices to a simpler mobile viewer
     if (isMobileLike()) {
-        return openMobileViewer({ fname, date });
+        return openMobileViewer({ fname, date, fromURL });
     }
     const overlay = document.createElement('div');
     overlay.className = 'iv_overlay';
@@ -600,7 +637,26 @@ function openImageViewer({ fname, date, index = null, list = null }) {
     // Close handlers
     const prevBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    function close() { overlay.remove(); window.removeEventListener('keydown', onKey); document.body.style.overflow = prevBodyOverflow; }
+    // Destroy overlay without touching history (used from popstate or replace clears)
+    function destroy() {
+        try { window.removeEventListener('keydown', onKey); } catch (_) { }
+        try { window.removeEventListener('resize', onResize); } catch (_) { }
+        overlay.remove();
+        document.body.style.overflow = prevBodyOverflow;
+        if (window.__activeViewerDestroy === destroy) window.__activeViewerDestroy = null;
+    }
+    // Close requested by user: coordinate with history/url state
+    function close() {
+        const hasParam = !!ViewerURL.get();
+        if (__viewerOpenedViaPush && hasParam) {
+            // Go back to previous history entry; popstate will call destroy()
+            history.back();
+            return;
+        }
+        // Not opened via push (e.g., deep-linked on first load) or no param -> just clear and destroy
+        if (hasParam) ViewerURL.clearReplace();
+        destroy();
+    }
     btnClose.addEventListener('click', close);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     function onKey(e) {
@@ -694,7 +750,7 @@ function openImageViewer({ fname, date, index = null, list = null }) {
         const nextBtn = document.createElement('button'); nextBtn.className = 'iv_nav_btn iv_next'; nextBtn.setAttribute('aria-label', 'Next'); nextBtn.textContent = '›';
         const canPrev = () => index > 0;
         const canNext = () => index < list.length - 1;
-        const showCurrent = (i) => {
+        let showCurrent = (i) => {
             index = i;
             const item = list[index];
             if (!item) return;
@@ -734,7 +790,30 @@ function openImageViewer({ fname, date, index = null, list = null }) {
         // Preload
         const neighbor = (k) => { if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/home/src/art/${f}`; const tmp = new Image(); tmp.src = u; } };
         neighbor(index + 1); neighbor(index - 1);
+
+        // Update URL when moving within gallery
+        const _origShowCurrent = showCurrent;
+        showCurrent = (i) => {
+            _origShowCurrent(i);
+            try {
+                const item = list[index];
+                const curName = item && (item.fname || item);
+                if (curName) ViewerURL.setReplace(curName);
+            } catch (_) { }
+        };
     }
+
+    // Update URL state on open and register destroy handle
+    if (fromURL) {
+        __viewerOpenedViaPush = false;
+        // Ensure URL reflects the current image (replace to normalize encoding)
+        try { if (ViewerURL.get() !== fname) ViewerURL.setReplace(fname); } catch (_) { }
+    } else {
+        __viewerOpenedViaPush = true;
+        try { ViewerURL.setPush(fname); } catch (_) { }
+    }
+    // Expose destroy for global handlers (popstate)
+    window.__activeViewerDestroy = destroy;
 }
 
 let artworksLoaded = false;
@@ -879,7 +958,7 @@ function ensureScrollAnimator() {
             readEnv();
             state.items.forEach(el => {
                 const rect = el.getBoundingClientRect();
-                if (rect.bottom < -state.margin || rect.top > state.viewportH + state.margin) {
+                if (rect.bottom < -state.margin || rect.top > state.viewH + state.margin) {
                     return; // skip off-screen work
                 }
                 apply(el);
@@ -1199,11 +1278,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const navbar = document.querySelector(".navbar");
     const items = document.querySelectorAll(".navbar_item");
+    const context_menu_buttons = [
+        document.getElementById('context_menu_view'),
+        document.getElementById('context_menu_download'),
+        document.getElementById('context_menu_info'),
+        document.getElementById('context_menu_close')
+    ]
     // Include hash so we can detect sections like #showcase on first load
     const getOnPage = () => window.location.pathname + window.location.hash;
     if (!navbar || items.length === 0) return;
 
     let activeIndex = 0;
+
 
     // Initialize active tab from current hash before any layout adjustments
     const setActiveFromHash = () => {
@@ -1400,12 +1486,126 @@ document.addEventListener("DOMContentLoaded", function () {
         const overlay = document.querySelector('.copy_block_overlay');
         if (overlay) overlay.style.display = 'none';
     };
+
+    context_menu_buttons.forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            const id = btn.id || '';
+            const name =
+                btn.getAttribute('data-name') ||
+                (id.includes('_view') ? 'view' :
+                    id.includes('_download') ? 'download' :
+                        id.includes('_info') ? 'info' :
+                            (id.includes('_share') || id.includes('_close')) ? 'share' : '');
+            const menu = document.getElementById('context_menu');
+            if (!name || !menu) return;
+            let fname = menu.getAttribute('data-fname') || '';
+            console.log(`Context menu action: ${name} on ${fname}`);
+            if (!fname) return;
+            if (fname.endsWith(' (GIF)')) {
+                fname = fname.replace(/\ \(GIF\)$/, '');
+            }
+            if (name === 'view') {
+                openImageViewer({ fname, list: artworksList });
+            } else if (name === 'download') {
+                const a = document.createElement('a');
+                a.href = `/home/src/art/${fname}`;
+                a.download = fname;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } else if (name === 'info') {
+                alert(`Filename: ${fname}`);
+            } else if (name === 'share') {
+                let url = window.location.origin + `/home/src/art/${fname}`;
+                url = url.replace(/\ +/g, '%20'); // space to %20
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(() => {
+                        alert('Image URL copied to clipboard');
+                    }).catch(() => {
+                        prompt('Copy the image URL:', url);
+                    });
+                } else {
+                    prompt('Copy the image URL:', url);
+                }
+            }
+            // Always close the menu after an action
+            menu.style.opacity = '0';
+            menu.removeAttribute('data-fname');
+        });
+    });
+
     blockEvents.forEach(ev => document.addEventListener(ev, (e) => {
-        e.preventDefault();
-        if (ev === 'contextmenu' && e.target.tagName === 'A') {
-            // Allow context menu on links
-            return true;
+        // Allow context menu on links and artwork containers; otherwise block (custom menu on artwork handled separately)
+        if (ev === 'contextmenu') {
+            const t = e.target;
+            const isLink = (t && (t.closest && t.closest('a'))) || (t && t.tagName === 'A');
+            const artworkEl = t && t.closest && t.closest('.artwork_image');
+            const menu = document.getElementById('context_menu');
+
+            function closeMenu() {
+                if (!menu) return;
+                menu.style.opacity = '0';
+                menu.removeAttribute('data-fname');
+                document.removeEventListener('click', onDocClick, true);
+                window.removeEventListener('keydown', onKey, true);
+                window.removeEventListener('scroll', closeMenu, true);
+                window.removeEventListener('resize', closeMenu);
+            }
+            function onDocClick(evt) {
+                if (!menu || !menu.contains(evt.target)) closeMenu();
+            }
+            function onKey(evt) {
+                if (evt.key === 'Escape') closeMenu();
+            }
+
+            if (isLink) {
+                // Allow native menu on links
+                return;
+            }
+
+            if (artworkEl && menu) {
+                // Open custom context menu for artworks
+                const imgEl = artworkEl.querySelector('img');
+                const fname =
+                    (imgEl && (imgEl.getAttribute('data-fname') || imgEl.getAttribute('alt'))) ||
+                    artworkEl.getAttribute('data-fname') ||
+                    '';
+
+                // Close any previous instance, then show
+                closeMenu();
+                menu.style.opacity = '1';
+                menu.style.display = 'block';
+
+                // Position within viewport
+                const vw = window.innerWidth, vh = window.innerHeight;
+                // Force layout to get dimensions once visible
+                const rect = menu.getBoundingClientRect();
+                const x = Math.min(e.pageX, vw - rect.width - 4);
+                const y = Math.min(e.pageY, vh - rect.height - 4);
+                menu.style.left = `${Math.max(4, x)}px`;
+                menu.style.top = `${Math.max(4, y)}px`;
+                menu.setAttribute('data-fname', fname);
+
+                // Auto-close hooks
+                setTimeout(() => {
+                    document.addEventListener('click', onDocClick, { capture: true, once: true });
+                }, 0);
+                window.addEventListener('keydown', onKey, { capture: true });
+                window.addEventListener('scroll', closeMenu, { capture: true });
+                window.addEventListener('resize', closeMenu);
+
+                e.preventDefault();
+                return;
+            }
+
+            // Any other right-click closes our menu and blocks the native one
+            if (menu) menu.style.opacity = '0';
+            e.preventDefault();
+            return;
         }
+        // Block other restricted events
+        e.preventDefault();
     }));
     // Detect PrintScreen key (PrtSc) and OS screenshot combos where possible
     window.addEventListener('keydown', (e) => {
@@ -1422,6 +1622,22 @@ document.addEventListener("DOMContentLoaded", function () {
     });
     // Hide blackout on click (optional) so site is usable again
     document.addEventListener('click', () => hideBlackout(), { capture: true });
+
+    // Deep-link: If URL has ?viewer=... open the viewer right away.
+    const handleViewerURL = () => {
+        const v = ViewerURL.get();
+        const active = typeof window.__activeViewerDestroy === 'function';
+        if (v && !active) {
+            openImageViewer({ fname: v, fromURL: true, list: artworksList });
+        } else if (!v && active) {
+            // Close any active viewer if URL no longer has the tag
+            try { window.__activeViewerDestroy(); } catch (_) { }
+        }
+    };
+    // Initial check after DOM is ready
+    handleViewerURL();
+    // Respond to back/forward
+    window.addEventListener('popstate', handleViewerURL);
 });
 
 window.addEventListener("hashchange", () => {
@@ -1480,7 +1696,7 @@ function go_to_tab() {
 }
 
 // Mobile simple viewer: pinch-zoom, pan, rotate, close button, top blurred bar
-function openMobileViewer({ fname, date }) {
+function openMobileViewer({ fname, date, fromURL = false }) {
     const overlay = document.createElement('div');
     overlay.className = 'mv_overlay';
     const topbar = document.createElement('div');
@@ -1519,9 +1735,16 @@ function openMobileViewer({ fname, date }) {
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    function close() {
+    function destroy() {
         overlay.remove();
         document.body.style.overflow = prevOverflow;
+        if (window.__activeViewerDestroy === destroy) window.__activeViewerDestroy = null;
+    }
+    function close() {
+        const hasParam = !!ViewerURL.get();
+        if (__viewerOpenedViaPush && hasParam) { history.back(); return; }
+        if (hasParam) ViewerURL.clearReplace();
+        destroy();
     }
     btnClose.addEventListener('click', close);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
@@ -1628,4 +1851,14 @@ function openMobileViewer({ fname, date }) {
         if (!touches.length) { delete img._lx; delete img._ly; }
     });
     overlay.addEventListener('touchcancel', () => { touches = []; pinch = null; delete img._lx; delete img._ly; });
+
+    // Update URL state on open and register destroy handle
+    if (fromURL) {
+        __viewerOpenedViaPush = false;
+        try { if (ViewerURL.get() !== fname) ViewerURL.setReplace(fname); } catch (_) { }
+    } else {
+        __viewerOpenedViaPush = true;
+        try { ViewerURL.setPush(fname); } catch (_) { }
+    }
+    window.__activeViewerDestroy = destroy;
 }

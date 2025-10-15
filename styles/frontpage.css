@@ -133,6 +133,35 @@ body {
     color: #000;
 }
 
+.context_menu {
+    position: absolute;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    min-width: 140px;
+    font-family: 'Rubik', system-ui, sans-serif;
+    transition: opacity 0.2s ease;
+}
+
+.context_menu_item {
+    position: relative;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #333;
+    user-select: none;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+
+.context_menu_item:hover {
+    background-color: #b7b7b7;
+}
+
 /* Make the banner act as a background of the navbar items container */
 .navbar_items {
     position: relative;
