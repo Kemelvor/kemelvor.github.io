@@ -968,7 +968,7 @@ function generateArtworks() {
     renderedArtworkKeys.clear();
     artworksList = [];
 
-    artworksInitPromise = fetch("/home/src/art/artlist.txt")
+    artworksInitPromise = fetch("/home/src/art/artlist.json", { cache: 'no-store' })
         .then(response => response.json())
         .then(data => {
             if (!Array.isArray(data)) return; // defensive
