@@ -72,7 +72,7 @@ body {
     justify-content: flex-start;
     height: 100%;
     width: 100%;
-    background: linear-gradient(to bottom, #E5D9FF, #BACAEC);
+    background: transparent;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
@@ -86,6 +86,22 @@ body {
     /* push content below fixed header */
     padding-top: var(--header-total);
 }
+
+#background_canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    border: none;
+    /* remove any visible border */
+    background-color: #000000;
+    transform: translateZ(0);
+    will-change: transform;
+    pointer-events: none;
+}
+
 
 .top {
     position: fixed;
@@ -412,11 +428,11 @@ body {
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: -2px;
     margin: 0;
-    padding: 6px 8px;
+    padding: 3px 4px;
     text-align: center;
-    font-size: 0.9rem;
+    font-size: 1.3rem;
     color: #ffffff00;
     /* hidden until hover */
     mix-blend-mode: difference;
@@ -443,27 +459,33 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.25);
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    pointer-events: none;
-    /* enable only on hover via parent */
-}
-
-.artwork_image:hover .gif_overlay {
+    background: rgba(0, 0, 0, 0);
     opacity: 1;
+    transition: opacity 0.2s ease;
     pointer-events: auto;
 }
 
+.gif_overlay:hover .gif_play_btn {
+    transform: scale(1) translate(-50%, -50%);
+    left: 50%;
+    top: 50%;
+    background: rgba(255, 255, 255, 0.85);
+}
+
 .gif_play_btn {
+    position: absolute;
+    right: 0;
+    bottom: 0;
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.47);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transform: scale(0.65) translate(-10%, -10%);
+    transition: all 0.3s ease;
 }
 
 .gif_play_btn:after {

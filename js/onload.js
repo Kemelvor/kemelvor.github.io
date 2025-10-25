@@ -1274,6 +1274,14 @@ function hide_section(id) {
     el.setAttribute('aria-hidden', 'true');
 }
 
+function build_background(ctx, canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth * dpr;
+    const h = canvas.clientHeight * dpr;
+    canvas.width = w;
+    canvas.height = h;
+}
+
 document.addEventListener("DOMContentLoaded", function () {
 
     const navbar = document.querySelector(".navbar");
@@ -1284,9 +1292,22 @@ document.addEventListener("DOMContentLoaded", function () {
         document.getElementById('context_menu_info'),
         document.getElementById('context_menu_close')
     ]
+    let canvas = document.getElementById('background_canvas');
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.id = 'background_canvas';
+        canvas.className = 'background_canvas';
+        document.body.appendChild(canvas);
+    }
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+
+    build_background(ctx, canvas);
+
     // Include hash so we can detect sections like #showcase on first load
     const getOnPage = () => window.location.pathname + window.location.hash;
     if (!navbar || items.length === 0) return;
+
 
     let activeIndex = 0;
 
