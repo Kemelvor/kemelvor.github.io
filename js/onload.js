@@ -1441,21 +1441,20 @@ function build_background(canvas) {
         uniform vec4 iMouse;        // mouse xy: current pos (px)
         uniform float y_pos;        // scroll Y position (pixels)
 
-        #define iterations 11
+        #define iterations 17
         #define formuparam 0.53
 
-        #define volsteps 10
+        #define volsteps 20
         #define stepsize 0.1
 
-        #define zoom   0.700
-        #define tile   0.950
-        // Base animation speed (very slow)
-        #define speed  0.006
+        #define zoom   0.800
+        #define tile   0.850
+        #define speed  0.0017
 
-        #define brightness 0.001
-        #define darkmatter 0.850
-        #define distfading 0.999
-        #define saturation 0.880
+        #define brightness 0.0015
+        #define darkmatter 0.300
+        #define distfading 0.730
+        #define saturation 0.850
 
         void main() {
             // get coords and direction
@@ -1516,7 +1515,7 @@ function build_background(canvas) {
     shader.use();
 
     let scrollY = 0;
-    let start_offset = Math.random() * 10000;
+    let start_offset = 5900;
     function update(y) {
         if (typeof y === 'number' && !isNaN(y)) {
             scrollY = y;
