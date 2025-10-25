@@ -1515,7 +1515,7 @@ function build_background(canvas) {
     shader.use();
 
     let scrollY = 0;
-    let start_offset = 5900;
+    let start_offset = 5600;
     function update(y) {
         if (typeof y === 'number' && !isNaN(y)) {
             scrollY = y;
