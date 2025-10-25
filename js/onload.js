@@ -1,3 +1,90 @@
+const BACKGROUND_SHADER_ENABLED = true; // master toggle
+const BACKGROUND_SHADER_LOW_QUALITY = false; // low quality mode for performance
+const BACKGROUND_SHADER_TIME_SCALE = 1.0; // speed multiplier
+const BACKGROUND_SHADER_INTENSITY = 1.0; // parrallax intensity multiplier
+
+const ARTWORK_BOX_ANIMATION_ENABLED = true; // master toggle
+const ARTWORK_BOX_ANIMATION_BLUR_ENABLED = true; // blur effect toggle
+
+const ARTWORK_BOX_SINGLEGIF_ENABLED = true; // single-GIF playback toggle, to prevent multiple simultaneous GIFs overloading CPU
+const ARTWORK_BOX_PROGRESSIVE_ENABLED = true; // progressive image loading toggle (ULQ -> LQ -> HQ)
+
+const COOKIES_ENABLED = true; // master toggle for cookies (if false, all cookie reads/writes are no-ops)
+
+// setup cookie helpers
+function setCookie(name, value, days) {
+    if (!COOKIES_ENABLED) return;
+    let expires = "";
+    if (days) {
+        const date = new Date();
+        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+        expires = "; expires=" + date.toUTCString();
+    }
+    document.cookie = name + "=" + (value || "") + expires + "; path=/";
+}
+function getCookie(name) {
+    if (!COOKIES_ENABLED) return null;
+    const nameEQ = name + "=";
+    const ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+    }
+    return null;
+}
+
+function clearCookie(name) {
+    if (!COOKIES_ENABLED) return;
+    document.cookie = name + "=; Max-Age=-99999999;";
+}
+
+function clearAllCookies() {
+    if (!COOKIES_ENABLED) return;
+    const cookies = document.cookie.split("; ");
+    for (const cookie of cookies) {
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        document.cookie = name + "=; Max-Age=-99999999;";
+    }
+}
+
+function requestCookieConsent() {
+    function acceptCookies() {
+        setCookie('cookie_consent', 'accepted', 365);
+    }
+    function declineCookies() {
+        setCookie('cookie_consent', 'declined', 365);
+    }
+    const consent = getCookie('cookie_consent');
+    if (consent === 'accepted' || consent === 'declined') {
+        return; // already decided
+    }
+    // Show consent banner
+    const banner = document.createElement('div');
+    banner.className = 'cookie_consent_banner';
+    banner.innerHTML = `
+        <div class="cookie_consent_message">
+            This website uses cookies to enhance your experience. By continuing to use this site, you agree to our use of cookies.
+        </div>
+        <div class="cookie_consent_buttons">
+            <button id="cookie_accept" class="cookie_consent_button">Accept</button>
+            <button id="cookie_decline" class="cookie_consent_button">Decline</button>
+        </div>
+    `;
+    document.body.appendChild(banner);
+
+    document.getElementById('cookie_accept').addEventListener('click', () => {
+        acceptCookies();
+        document.body.removeChild(banner);
+    });
+
+    document.getElementById('cookie_decline').addEventListener('click', () => {
+        declineCookies();
+        document.body.removeChild(banner);
+    });
+}
+
 function positionHighlightToItem(item) {
     const highlight = document.querySelector(".navbar_footer_highlight");
     const footer = document.querySelector(".navbar_footer");
@@ -1043,7 +1130,7 @@ function generateArtworks() {
     }
 
     // Start fresh before the first (and only) load
-    container.innerHTML = "";
+    container.innerHTML = "<div class=\"artwork_spacer\"></div><div class=\"artwork_header\">Showcase</div>";
     renderedArtworkKeys.clear();
     artworksList = [];
 
@@ -1274,16 +1361,183 @@ function hide_section(id) {
     el.setAttribute('aria-hidden', 'true');
 }
 
-function build_background(ctx, canvas) {
+
+function createShaderProgram(canvas, vertexSrc, fragmentSrc) {
+    const gl = canvas.getContext('webgl');
+    if (!gl) {
+        console.error("WebGL not supported");
+        return null;
+    }
+    function compileShader(type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error("Shader compile error:", gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+    const vertexShader = compileShader(gl.VERTEX_SHADER, vertexSrc);
+    const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSrc);
+    if (!vertexShader || !fragmentShader) return null;
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Program link error:', gl.getProgramInfoLog(program));
+        return null;
+    }
+    return {
+        use() {
+            gl.useProgram(program);
+            // Setup a full-screen quad
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            const positions = [-1, -1, 1, -1, -1, 1, 1, 1];
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+            const positionLocation = gl.getAttribLocation(program, 'a_position');
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        },
+        setFloat(name, value) {
+            const location = gl.getUniformLocation(program, name);
+            gl.uniform1f(location, value);
+        },
+        setVec2(name, value) {
+            const location = gl.getUniformLocation(program, name);
+            gl.uniform2fv(location, value);
+        },
+        setVec4(name, value) {
+            const location = gl.getUniformLocation(program, name);
+            gl.uniform4fv(location, value);
+        },
+        draw() {
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        },
+    };
+}
+
+
+function build_background(canvas) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth * dpr;
     const h = canvas.clientHeight * dpr;
     canvas.width = w;
     canvas.height = h;
+    const vertexShaderSrc = `
+        attribute vec4 a_position;
+        void main() {
+            gl_Position = a_position;
+        }
+    `;
+    const fragmentShaderSrc = `
+        precision mediump float;
+        uniform vec2 iResolution;   // viewport resolution (in pixels)
+        uniform float iTime;        // time in seconds
+        uniform vec4 iMouse;        // mouse xy: current pos (px)
+        uniform float y_pos;        // scroll Y position (pixels)
+
+        #define iterations 11
+        #define formuparam 0.53
+
+        #define volsteps 10
+        #define stepsize 0.1
+
+        #define zoom   0.700
+        #define tile   0.950
+        // Base animation speed (very slow)
+        #define speed  0.006
+
+        #define brightness 0.001
+        #define darkmatter 0.850
+        #define distfading 0.999
+        #define saturation 0.880
+
+        void main() {
+            // get coords and direction
+            vec2 uv = gl_FragCoord.xy / iResolution.xy - 0.5;
+            uv.y *= iResolution.y / iResolution.x;
+            // add subtle vertical parallax based on scroll
+            float sScroll = y_pos / max(1.0, iResolution.y);
+            vec3 dir=vec3(uv*zoom,1.);
+            float time=iTime*(speed*0.05)+.25;
+
+            //mouse rotation
+            float a1=.5+iMouse.x/iResolution.x*2.;
+            float a2=.8+iMouse.y/iResolution.y*2.;
+            mat2 rot1=mat2(cos(a1),sin(a1),-sin(a1),cos(a1));
+            mat2 rot2=mat2(cos(a2),sin(a2),-sin(a2),cos(a2));
+            dir.xz*=rot1;
+            dir.xy*=rot2;
+            vec3 from=vec3(1.,.5,0.5);
+            from+=vec3(time*2.,time,-2.);
+            from.xz*=rot1;
+            from.xy*=rot2;
+            from.xy += sScroll * .01; // scroll-based vertical offset
+            //volumetric rendering
+            float s=0.1,fade=1.;
+            vec3 v=vec3(0.);
+            for (int r=0; r<volsteps; r++) {
+                vec3 p=from+s*dir*.5;
+                p = abs(vec3(tile)-mod(p,vec3(tile*2.))); // tiling fold
+                float pa,a=pa=0.;
+                for (int i=0; i<iterations; i++) { 
+                    p=abs(p)/dot(p,p)-formuparam; // the magic formula
+                    a+=abs(length(p)-pa); // absolute sum of average change
+                    pa=length(p);
+                }
+                float dm=max(0.,darkmatter-a*a*.001); //dark matter
+                a*=a*a; // add contrast
+                if (r>6) fade*=1.-dm; // dark matter, don't render near
+                //v+=vec3(dm,dm*.5,0.);
+                v+=fade;
+                v+=vec3(s*s, s*s, s)*a*brightness*fade; // coloring based on distance
+                fade*=distfading; // distance fading
+                s+=stepsize;
+            }
+            v=mix(vec3(length(v)),v,saturation)*vec3(0.85, 0.8, 1.0); //color adjust
+            // gentle star twinkle using a simple analytical pattern
+            float tw = 0.985 + (0.015 * sin(iTime*8.0 + uv.x*24.0 + uv.y*31.0));
+            v *= (tw+1.0) *0.5;
+            gl_FragColor = vec4(v*.01,1.); 	
+            
+        }
+    `;
+
+    const shader = createShaderProgram(canvas, vertexShaderSrc, fragmentShaderSrc);
+    if (!shader) {
+        console.error("Failed to create background shader");
+        return { update: function () { } };
+    }
+    shader.use();
+
+    let scrollY = 0;
+    let start_offset = Math.random() * 10000;
+    function update(y) {
+        if (typeof y === 'number' && !isNaN(y)) {
+            scrollY = y;
+        }
+        // Map uniforms expected by the shader
+        shader.setVec2('iResolution', [w, h]);
+        shader.setFloat('iTime', ((performance.now() || 0) / 1000.0) + start_offset);
+        // We don't track mouse here; send zeros
+        shader.setVec4('iMouse', [0.0, 0.0, 0.0, 0.0]);
+        shader.setFloat('y_pos', scrollY);
+        shader.draw();
+    }
+    // Draw once initially
+    update(0);
+    // Keep a very light animation loop so stars drift/twinkle even without scroll
+    (function tick() { update(scrollY); requestAnimationFrame(tick); })();
+    return { update };
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-
+    requestCookieConsent();
     const navbar = document.querySelector(".navbar");
     const items = document.querySelectorAll(".navbar_item");
     const context_menu_buttons = [
@@ -1300,9 +1554,16 @@ document.addEventListener("DOMContentLoaded", function () {
         document.body.appendChild(canvas);
     }
 
-    const ctx = canvas.getContext('2d', { alpha: true });
+    let { update } = build_background(canvas);
 
-    build_background(ctx, canvas);
+    ['home_container', 'artwork_container', 'processes_container', 'commissions_container'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('scroll', (e) => {
+                update(-e.target.scrollTop);
+            });
+        }
+    });
 
     // Include hash so we can detect sections like #showcase on first load
     const getOnPage = () => window.location.pathname + window.location.hash;
