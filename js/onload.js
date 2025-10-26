@@ -172,7 +172,7 @@ const PreloadManager = (() => {
 // Given a GIF url, compute its poster path in compact_art_posters
 function gifPosterUrlFromGif(gifUrl) {
     try {
-        // Expecting path like /home/src/compact_art/name.gif
+        // Expecting path like /src/compact_art/name.gif
         const lastSlash = gifUrl.lastIndexOf('/')
         const base = gifUrl.substring(0, lastSlash);
         const file = gifUrl.substring(lastSlash + 1);
@@ -188,7 +188,7 @@ function gifPosterUrlFromGif(gifUrl) {
 }
 
 function progressiveUrlsForImage(url) {
-    // Given /home/src/compact_art/name.ext -> ulq/lq/hq variants
+    // Given /src/compact_art/name.ext -> ulq/lq/hq variants
     const lastSlash = url.lastIndexOf('/')
     const base = url.substring(0, lastSlash);
     const file = url.substring(lastSlash + 1);
@@ -447,9 +447,9 @@ function openImageViewer({ fname, date, index = null, list = null, fromURL = fal
     img.className = 'iv_img';
     img.alt = fname;
     img.draggable = false;
-    const fullUrl = `/home/src/art/${fname}`;
+    const fullUrl = `/src/art/${fname}`;
     const isGif = fname.toLowerCase().endsWith('.gif');
-    const previewUrl = isGif ? fullUrl : `/home/src/compact_art/${fname}`;
+    const previewUrl = isGif ? fullUrl : `/src/compact_art/${fname}`;
     img.decoding = 'async';
     img.src = previewUrl;
     canvas.appendChild(img);
@@ -851,13 +851,13 @@ function openImageViewer({ fname, date, index = null, list = null, fromURL = fal
             // Defer reset until the new image loads so minScale uses its natural size
             userInteracted = false;
             // Swap URLs
-            const nuFull = `/home/src/art/${nextFname}`;
+            const nuFull = `/src/art/${nextFname}`;
             const isGif2 = nextFname.toLowerCase().endsWith('.gif');
             if (!isGif2) { progress.style.display = ''; progressBar.style.width = '0%'; streamImageWithProgress(nuFull); }
             else { img.addEventListener('load', () => { initFromImage(); scale = minScale; centerAtCurrentScale(); }, { once: true }); img.src = nuFull; progress.style.display = 'none'; }
             // Preload neighbors
             const neighbor = (k) => {
-                if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/home/src/art/${f}`; const tmp = new Image(); tmp.src = u; }
+                if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/src/art/${f}`; const tmp = new Image(); tmp.src = u; }
             };
             neighbor(index + 1); neighbor(index - 1);
             // Update buttons visibility
@@ -875,7 +875,7 @@ function openImageViewer({ fname, date, index = null, list = null, fromURL = fal
         prevBtn.style.display = canPrev() ? '' : 'none';
         nextBtn.style.display = canNext() ? '' : 'none';
         // Preload
-        const neighbor = (k) => { if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/home/src/art/${f}`; const tmp = new Image(); tmp.src = u; } };
+        const neighbor = (k) => { if (k >= 0 && k < list.length) { const f = list[k].fname || list[k]; const u = `/src/art/${f}`; const tmp = new Image(); tmp.src = u; } };
         neighbor(index + 1); neighbor(index - 1);
 
         // Update URL when moving within gallery
@@ -1134,7 +1134,7 @@ function generateArtworks() {
     renderedArtworkKeys.clear();
     artworksList = [];
 
-    artworksInitPromise = fetch("/home/src/art/artlist.json", { cache: 'no-store' })
+    artworksInitPromise = fetch("/src/art/artlist.json", { cache: 'no-store' })
         .then(response => response.json())
         .then(data => {
             if (!Array.isArray(data)) return; // defensive
@@ -1161,7 +1161,7 @@ function generateArtworks() {
                 // Whenever the image updates, refresh animation frame
                 img.addEventListener('load', scheduleScrollRefresh);
 
-                const url = `/home/src/compact_art/${artwork.fname}`;
+                const url = `/src/compact_art/${artwork.fname}`;
                 const setWrapperWidthFromImage = () => {
                     const h = wrapper.clientHeight || parseFloat(getComputedStyle(wrapper).height) || 220;
                     const w = img.naturalWidth;
@@ -1790,7 +1790,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 openImageViewer({ fname, list: artworksList });
             } else if (name === 'download') {
                 const a = document.createElement('a');
-                a.href = `/home/src/art/${fname}`;
+                a.href = `/src/art/${fname}`;
                 a.download = fname;
                 document.body.appendChild(a);
                 a.click();
@@ -1798,7 +1798,7 @@ document.addEventListener("DOMContentLoaded", function () {
             } else if (name === 'info') {
                 alert(`Filename: ${fname}`);
             } else if (name === 'share') {
-                let url = window.location.origin + `/home/src/art/${fname}`;
+                let url = window.location.origin + `/src/art/${fname}`;
                 url = url.replace(/\ +/g, '%20'); // space to %20
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(url).then(() => {
@@ -2004,7 +2004,7 @@ function openMobileViewer({ fname, date, fromURL = false }) {
     img.alt = fname;
     img.draggable = false;
     img.decoding = 'async';
-    const fullUrl = `/home/src/art/${fname}`;
+    const fullUrl = `/src/art/${fname}`;
     img.src = fullUrl;
     wrap.appendChild(img);
     canvas.appendChild(wrap);
